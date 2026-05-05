@@ -44,7 +44,7 @@ public class LichTrinhController {
         } else if (trangThai != null && !trangThai.isEmpty()) {
             result = lichTrinhRepo.findByTrangThai(trangThai);
         } else {
-            result = lichTrinhRepo.findAll();
+            result = lichTrinhRepo.findAllWithDetails();
         }
         return ResponseEntity.ok(ApiResponse.ok(result));
     }

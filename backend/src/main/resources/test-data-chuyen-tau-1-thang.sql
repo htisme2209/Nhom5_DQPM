@@ -6,7 +6,7 @@
 --         ngay_tao, trang_thai, vai_tro_tai_da_nang
 -- ============================================
 
-USE railway_danang;
+USE railway_danang1;
 GO
 
 -- Xóa dữ liệu cũ

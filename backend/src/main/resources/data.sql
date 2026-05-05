@@ -4,8 +4,8 @@
 -- Cập nhật: phù hợp entity mới nhất
 -- ============================================
 
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'railway_danang')
-    CREATE DATABASE railway_danang;
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'railway_danang1')
+    CREATE DATABASE railway_danang1;
 GO
 USE railway_danang;
 GO

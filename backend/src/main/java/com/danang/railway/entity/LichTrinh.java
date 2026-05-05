@@ -60,7 +60,6 @@ public class LichTrinh {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ma_chuyen_tau", insertable = false, updatable = false)
-    @JsonIgnore
     private ChuyenTau chuyenTau;
 
     @ManyToOne(fetch = FetchType.LAZY)

@@ -45,7 +45,6 @@ public class ChuyenTau {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ma_tau", insertable = false, updatable = false)
-    @JsonIgnore
     private Tau tau;
 
     @ManyToOne(fetch = FetchType.LAZY)

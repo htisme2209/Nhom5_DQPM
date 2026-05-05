@@ -1,1 +1,5 @@
 /nbproject/private/
+backend/target/
+.idea/
+*.class
+backend/.idea/
