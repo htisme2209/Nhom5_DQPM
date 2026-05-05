@@ -1609,6 +1609,17 @@ table tbody tr:hover {
   }
 }
 
+@keyframes slideInRight {
+  from {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
 .toast.success {
   background: #166534;
   color: var(--white);

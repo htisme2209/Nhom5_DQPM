@@ -43,6 +43,18 @@ public class DuongRay {
     @Column(name = "thoi_gian_phong_toa_uoc_tinh")
     private Integer thoiGianPhongToaUocTinh;
 
+    /**
+     * Phương án 2: Cửa sổ thời gian phong tỏa thực tế.
+     * Chỉ set khi ray bị phong tỏa (trangThai = PHONG_TOA_TAM / PHONG_TOA_CUNG).
+     * Set về NULL khi giải phóng (trangThai = SAN_SANG).
+     * Frontend dùng 2 field này thay vì trangThai để kiểm tra "có đang phong tỏa không".
+     */
+    @Column(name = "thoi_gian_bat_dau_phong_toa")
+    private LocalDateTime thoiGianBatDauPhongToa;
+
+    @Column(name = "thoi_gian_ket_thuc_phong_toa")
+    private LocalDateTime thoiGianKetThucPhongToa;
+
     @PrePersist
     protected void onCreate() {
         ngayTao = LocalDateTime.now();

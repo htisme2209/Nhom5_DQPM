@@ -106,13 +106,14 @@ INSERT INTO TAU (ma_tau, ten_tau, loai_tau, so_toa, suc_chua_hanh_khach, trang_t
 -- 6. ĐƯỜNG RAY (Ga Đà Nẵng - 5 ray)
 -- Thêm: thoi_gian_xu_ly_uoc_tinh, thoi_gian_phong_toa_uoc_tinh
 -- ============================================
-INSERT INTO DUONG_RAY (ma_ray, ma_ga, so_ray, chieu_dai_ray, trang_thai, ghi_chu, ngay_tao, ngay_cap_nhat, thoi_gian_xu_ly_uoc_tinh, thoi_gian_phong_toa_uoc_tinh) VALUES
-('RAY-01', 'GA-DN', 1, 450.00, 'SAN_SANG', N'Đường ray chính - Trục Bắc', GETDATE(), GETDATE(), NULL, NULL),
-('RAY-02', 'GA-DN', 2, 420.00, 'SAN_SANG', N'Đường ray chính - Trục Nam', GETDATE(), GETDATE(), NULL, NULL),
-('RAY-03', 'GA-DN', 3, 380.00, 'SAN_SANG', N'Đường ray phụ - hàng hóa', GETDATE(), GETDATE(), NULL, NULL),
-('RAY-04', 'GA-DN', 4, 350.00, 'SAN_SANG', N'Đường ray nhánh 1', GETDATE(), GETDATE(), NULL, NULL),
-('RAY-05', 'GA-DN', 5, 300.00, 'BAO_TRI', N'Đường ray nhánh 2 - Đang bảo trì', GETDATE(), GETDATE(), 120, 480),
-('RAY-06', 'GA-DN', 6, 280.00, 'PHONG_TOA', N'Đường ray 6 - Đang phong tỏa do sự cố', GETDATE(), GETDATE(), 60, 240);
+INSERT INTO DUONG_RAY (ma_ray, ma_ga, so_ray, chieu_dai_ray, trang_thai, ghi_chu, ngay_tao, ngay_cap_nhat, thoi_gian_xu_ly_uoc_tinh, thoi_gian_phong_toa_uoc_tinh, thoi_gian_bat_dau_phong_toa, thoi_gian_ket_thuc_phong_toa) VALUES
+('RAY-01', 'GA-DN', 1, 450.00, 'SAN_SANG',   N'Đường ray chính - Trục Bắc',            GETDATE(), GETDATE(), NULL, NULL, NULL, NULL),
+('RAY-02', 'GA-DN', 2, 420.00, 'SAN_SANG',   N'Đường ray chính - Trục Nam',            GETDATE(), GETDATE(), NULL, NULL, NULL, NULL),
+('RAY-03', 'GA-DN', 3, 380.00, 'SAN_SANG',   N'Đường ray phụ - hàng hóa',             GETDATE(), GETDATE(), NULL, NULL, NULL, NULL),
+('RAY-04', 'GA-DN', 4, 350.00, 'SAN_SANG',   N'Đường ray nhánh 1',                    GETDATE(), GETDATE(), NULL, NULL, NULL, NULL),
+('RAY-05', 'GA-DN', 5, 300.00, 'BAO_TRI',    N'Đường ray nhánh 2 - Đang bảo trì',     GETDATE(), GETDATE(), 120,  480, NULL, NULL),
+('RAY-06', 'GA-DN', 6, 280.00, 'PHONG_TOA',  N'Đường ray 6 - Đang phong tỏa do sự cố', GETDATE(), GETDATE(), 60,  240, NULL, NULL);
+
 
 -- ============================================
 -- 7. CHUYẾN TÀU
@@ -281,3 +282,14 @@ PRINT N'   - 8 Kế hoạch đặc biệt (đủ trạng thái + mức ưu tiên
 PRINT N'   - 6 Chỉ đạo (DA_GUI + DA_DOC)';
 PRINT N'   - 15 Nhật ký (nhiều hành động/đối tượng)';
 GO
+
+-- === QUY TẮC NGHIỆP VỤ ===
+INSERT INTO QUY_TAC_NGHIEP_VU (ma_quy_tac, ten_quy_tac, gia_tri, kieu_du_lieu, mo_ta, nhom_quy_tac, cap_nhat_lan_cuoi) VALUES 
+('QT-01', N'Thời gian đệm tối thiểu sau mỗi loại tàu', '15', 'NUMBER', N'Khoảng thời gian đệm (phút) giữa các tàu nhằm đảm bảo an toàn.', N'LỊCH TRÌNH VÀ VẬN HÀNH', CURRENT_TIMESTAMP),
+('QT-02', N'Thời gian lên tàu tối thiểu (Tàu xuất phát)', '30', 'NUMBER', N'Thời gian bắt đầu làm thủ tục cho hành khách lên tàu trước giờ khởi hành (phút).', N'LỊCH TRÌNH VÀ VẬN HÀNH', CURRENT_TIMESTAMP),
+('QT-03', N'Thời gian dừng đỗ tối thiểu (Tàu điểm cuối)', '20', 'NUMBER', N'Thời gian tàu dừng đón/trả khách tại nhà ga cuối (phút).', N'LỊCH TRÌNH VÀ VẬN HÀNH', CURRENT_TIMESTAMP),
+('QT-04', N'Quy trình phê duyệt Kế hoạch Đặc biệt', 'BAN_QUAN_LY', 'TEXT', N'Chức vụ có thẩm quyền phê duyệt các thay đổi lịch trình bất ngờ.', N'PHÊ DUYỆT VÀ TÀI KHOẢN', CURRENT_TIMESTAMP),
+('QT-05', N'Ngưỡng cảnh báo trễ tàu', '15', 'NUMBER', N'Thời gian trễ (phút) so với lịch trình để hệ thống kích hoạt cảnh báo.', N'BÁO ĐỘNG VÀ ĐỒNG BỘ', CURRENT_TIMESTAMP),
+('QT-06', N'Thời hạn đồng bộ Bảng LED', '5', 'NUMBER', N'Hệ thống tự động đồng bộ Bảng LED điện tử Nhà ga định kỳ (phút/lần).', N'BÁO ĐỘNG VÀ ĐỒNG BỘ', CURRENT_TIMESTAMP),
+('QT-07', N'Số ngày tối thiểu để tạo chuyến tàu', '30', 'NUMBER', N'Ràng buộc thời gian tạo chuyến tàu mới phải trước ngày chạy một khoảng thời gian (ngày).', N'LỊCH TRÌNH VÀ VẬN HÀNH', CURRENT_TIMESTAMP);
+

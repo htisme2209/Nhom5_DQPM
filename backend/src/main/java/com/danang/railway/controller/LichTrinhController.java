@@ -2,18 +2,16 @@ package com.danang.railway.controller;
 
 import com.danang.railway.dto.ApiResponse;
 import com.danang.railway.entity.*;
+import com.danang.railway.exception.BusinessRuleException;
 import com.danang.railway.repository.*;
 import com.danang.railway.service.LichTrinhService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api")
@@ -26,6 +24,7 @@ public class LichTrinhController {
     private final DuongRayRepository duongRayRepo;
     private final TauRepository tauRepo;
     private final NhatKyRepository nhatKyRepo;
+    private final QuyTacNghiepVuRepository quyTacRepo;
 
     @GetMapping("/lich-trinh")
     public ResponseEntity<ApiResponse<List<LichTrinh>>> getAll(
@@ -62,6 +61,8 @@ public class LichTrinhController {
         try {
             LichTrinh saved = lichTrinhService.taoLichTrinh(lichTrinh);
             return ResponseEntity.ok(ApiResponse.ok("Tạo lịch trình thành công", saved));
+        } catch (BusinessRuleException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), e.getErrorCode()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
@@ -72,6 +73,8 @@ public class LichTrinhController {
         try {
             LichTrinh saved = lichTrinhService.capNhatLichTrinh(id, lichTrinh);
             return ResponseEntity.ok(ApiResponse.ok("Cập nhật lịch trình thành công", saved));
+        } catch (BusinessRuleException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage(), e.getErrorCode()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
@@ -112,6 +115,7 @@ public class LichTrinhController {
         return ResponseEntity.ok(ApiResponse.ok(result));
     }
 
+
     @GetMapping("/chuyen-tau/{id}")
     public ResponseEntity<ApiResponse<ChuyenTau>> getChuyenTauById(@PathVariable String id) {
         return chuyenTauRepo.findById(id)
@@ -121,6 +125,28 @@ public class LichTrinhController {
 
     @PostMapping("/chuyen-tau")
     public ResponseEntity<ApiResponse<ChuyenTau>> createChuyenTau(@RequestBody ChuyenTau chuyenTau) {
+        
+        if (chuyenTau.getNgayChay() != null && !chuyenTau.getNgayChay().isEmpty()) {
+            // Lấy quy tắc số ngày tối thiểu
+            int minDays = 30; // Mặc định
+            java.util.Optional<com.danang.railway.entity.QuyTacNghiepVu> qt = quyTacRepo.findById("QT-07");
+            if (qt.isPresent()) {
+                try {
+                    minDays = Integer.parseInt(qt.get().getGiaTri());
+                } catch (Exception e) {
+                    // Fallback to 30
+                }
+            }
+
+            java.time.LocalDate requestedDate = java.time.LocalDate.parse(chuyenTau.getNgayChay().substring(0, 10)); // Lấy YYYY-MM-DD
+            java.time.LocalDate today = java.time.LocalDate.now();
+            java.time.LocalDate minAllowedDate = today.plusDays(minDays);
+            
+            if (requestedDate.isBefore(minAllowedDate)) {
+                return ResponseEntity.badRequest().body(ApiResponse.error("Theo quy định hệ thống, chỉ được phép tạo chuyến tàu trước ít nhất " + minDays + " ngày so với ngày chạy"));
+            }
+        }
+
         if (chuyenTau.getMaChuyenTau() == null || chuyenTau.getMaChuyenTau().isEmpty()) {
             chuyenTau.setMaChuyenTau("CT-" + System.currentTimeMillis());
         }

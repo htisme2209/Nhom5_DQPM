@@ -137,7 +137,16 @@ export default function LichTrinhPage() {
       setShowForm(false);
       loadData();
     } catch (e) {
-      showToast(e.response?.data?.message || 'Lỗi khi lưu lịch trình', 'error');
+      const errorData = e.response?.data;
+      if (errorData?.code === 'ERR_LEAD_TIME_24H') {
+        showToast(
+          '⚠️ Quy tắc 24h: ' + errorData.message + 
+          ' (Hãy dùng luồng xử lý sự cố nếu cần tạo lịch trình khẩn cấp)', 
+          'error'
+        );
+      } else {
+        showToast(errorData?.message || 'Lỗi khi lưu lịch trình', 'error');
+      }
     } finally {
       setFormLoading(false);
     }
@@ -221,6 +230,7 @@ export default function LichTrinhPage() {
         schedules={lichTrinh}
         loading={loading}
         conflicts={conflicts}
+        chuyenTaus={chuyenTau}
         onEdit={openEdit}
         onDelete={setShowDelete}
         onCreate={openCreate}

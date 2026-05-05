@@ -17,76 +17,124 @@ public class SuCoService {
     private final DuongRayRepository duongRayRepo;
     private final LichTrinhRepository lichTrinhRepo;
     private final NhatKyRepository nhatKyRepo;
+    private final QuyTacNghiepVuRepository quyTacRepo;
+
+    private int getRuleValue(String maQuyTac, int defaultValue) {
+        return quyTacRepo.findById(maQuyTac)
+                .map(qt -> {
+                    try {
+                        return Integer.parseInt(qt.getGiaTri());
+                    } catch (Exception e) {
+                        return defaultValue;
+                    }
+                })
+                .orElse(defaultValue);
+    }
 
     /**
-     * UC-09: Ghi nhận sự cố - Phát động quy trình
-     * Logic tự động:
-     * 1. Cập nhật trạng thái đường ray dựa trên mức độ sự cố
-     * 2. Quét và gắn thẻ các lịch trình bị ảnh hưởng
+     * UC-09: Ghi nhận sự cố (Nhân viên Nhà ga)
+     * Chỉ lưu báo cáo — KHÔNG phong tỏa ray, KHÔNG gắn thẻ lịch trình.
+     * Điều hành sẽ tiếp nhận và đánh giá ở bước tiếp theo.
      */
     @Transactional
     public SuCo ghiNhanSuCo(SuCo suCo, String maTaiKhoan, String diaChiIp) {
-        // 1. Lưu sự cố
+        // Sinh maSuCo tập trung ở backend
+        if (suCo.getMaSuCo() == null || suCo.getMaSuCo().isBlank()) {
+            suCo.setMaSuCo("SC-" + System.currentTimeMillis());
+        }
         suCo.setNgayTao(LocalDateTime.now());
-        suCo.setTrangThaiXuLy("CHUA_XU_LY");
-        SuCo savedSuCo = suCoRepo.save(suCo);
-
-        // 2. Xử lý phong tỏa đường ray nếu có
-        if (suCo.getMaRay() != null) {
-            DuongRay ray = duongRayRepo.findById(suCo.getMaRay())
-                    .orElseThrow(() -> new RuntimeException("Không tìm thấy đường ray"));
-
-            String trangThaiMoi = xacDinhTrangThaiPhongToa(suCo);
-            String trangThaiCu = ray.getTrangThai();
-            
-            ray.setTrangThai(trangThaiMoi);
-            
-            // Cập nhật thời gian ước tính
-            if ("PHONG_TOA_TAM".equals(trangThaiMoi)) {
-                ray.setThoiGianXuLyUocTinh(tinhThoiGianXuLyUocTinh(suCo.getMucDo()));
-            } else if ("PHONG_TOA_CUNG".equals(trangThaiMoi)) {
-                ray.setThoiGianPhongToaUocTinh(null); // Không thể dự đoán
-            }
-            
-            duongRayRepo.save(ray);
-
-            // Ghi nhật ký phong tỏa ray
-            ghiNhatKy(maTaiKhoan, "PHONG_TOA_RAY", "DUONG_RAY", suCo.getMaRay(),
-                    "Trạng thái: " + trangThaiCu,
-                    "Trạng thái: " + trangThaiMoi + " do sự cố " + savedSuCo.getMaSuCo(),
-                    diaChiIp);
-
-            // 3. Quét và gắn thẻ lịch trình bị ảnh hưởng
-            ganTheLichTrinhBiAnhHuong(savedSuCo, ray, maTaiKhoan, diaChiIp);
+        suCo.setMaNguoiGhiNhan(maTaiKhoan);
+        suCo.setTrangThaiXuLy("CHO_TIEP_NHAN");
+        // Đặt lại maLichTrinh nếu trống
+        if (suCo.getMaLichTrinh() != null && suCo.getMaLichTrinh().isBlank()) {
+            suCo.setMaLichTrinh(null);
         }
 
-        // Ghi nhật ký ghi nhận sự cố
+        SuCo savedSuCo = suCoRepo.save(suCo);
+
+        // Ghi nhật ký
         ghiNhatKy(maTaiKhoan, "GHI_NHAN_SU_CO", "SU_CO", savedSuCo.getMaSuCo(),
-                null, "Ghi nhận sự cố: " + suCo.getLoaiSuCo() + " - " + suCo.getMucDo(),
+                null, "Báo cáo sự cố: " + suCo.getLoaiSuCo() + " tại ray " + suCo.getMaRay(),
                 diaChiIp);
 
         return savedSuCo;
     }
 
     /**
-     * Xác định trạng thái phong tỏa dựa trên mức độ và cờ kích hoạt
+     * UC-09/UC-06: Tiếp nhận và đánh giá sự cố (Nhân viên Điều hành)
+     * Đây là bước quan trọng nhất: NVĐH xác nhận mức độ, quyết định phong tỏa,
+     * hệ thống tự động quét lịch trình bị ảnh hưởng.
      */
-    private String xacDinhTrangThaiPhongToa(SuCo suCo) {
-        // Nếu kích hoạt phong tỏa cứng thủ công
-        if (Boolean.TRUE.equals(suCo.getKichHoatPhongToa())) {
-            return "PHONG_TOA_CUNG";
+    @Transactional
+    public SuCo tiepNhanVaDanhGia(String maSuCo, String mucDoChinhThuc,
+                                   boolean coPhongToaRay, String loaiPhongToa,
+                                   String maTaiKhoan, String diaChiIp, Integer thoiGianXuLyUocTinh) {
+        SuCo suCo = suCoRepo.findById(maSuCo)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy sự cố: " + maSuCo));
+
+        if (!"CHO_TIEP_NHAN".equals(suCo.getTrangThaiXuLy())) {
+            throw new RuntimeException("Sự cố không ở trạng thái chờ tiếp nhận (hiện tại: " + suCo.getTrangThaiXuLy() + ")");
         }
 
-        // Dựa trên mức độ
-        String mucDo = suCo.getMucDo();
-        if ("CAO".equals(mucDo) || "KHAN_CAP".equals(mucDo)) {
-            return "PHONG_TOA_CUNG";
-        } else if ("THAP".equals(mucDo) || "TRUNG_BINH".equals(mucDo)) {
-            return "PHONG_TOA_TAM";
+        // Cập nhật thông tin tiếp nhận
+        suCo.setMucDo(mucDoChinhThuc);
+        suCo.setTrangThaiXuLy("DANG_XU_LY");
+        if (thoiGianXuLyUocTinh != null) {
+            suCo.setThoiGianXuLyUocTinh(thoiGianXuLyUocTinh);
+        }
+        suCoRepo.save(suCo);
+
+        // Phong tỏa ray nếu NVĐH quyết định
+        if (coPhongToaRay && suCo.getMaRay() != null) {
+            DuongRay ray = duongRayRepo.findById(suCo.getMaRay())
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy đường ray"));
+
+            String trangThaiCu = ray.getTrangThai();
+            String trangThaiMoi = loaiPhongToa != null ? loaiPhongToa : "PHONG_TOA_TAM";
+            ray.setTrangThai(trangThaiMoi);
+
+            if ("PHONG_TOA_TAM".equals(trangThaiMoi)) {
+                // Ưu tiên thời gian do Điều hành nhập, nếu trống thì tính mặc định
+                Integer phut = suCo.getThoiGianXuLyUocTinh() != null ? suCo.getThoiGianXuLyUocTinh() : tinhThoiGianXuLyUocTinh(mucDoChinhThuc);
+                ray.setThoiGianXuLyUocTinh(phut);
+
+                // ── Phương án 2: ghi cửa sổ thời gian phong tỏa cụ thể ────────
+                LocalDateTime batDau = suCo.getNgayXayRa() != null ? suCo.getNgayXayRa() : LocalDateTime.now();
+                LocalDateTime ketThuc = phut != null ? batDau.plusMinutes(phut) : batDau.plusHours(2);
+                ray.setThoiGianBatDauPhongToa(batDau);
+                ray.setThoiGianKetThucPhongToa(ketThuc);
+            } else if ("PHONG_TOA_CUNG".equals(trangThaiMoi)) {
+                // Phong tỏa cứng: từ lúc xảy ra đến cuối ngày hôm sau
+                LocalDateTime batDau = suCo.getNgayXayRa() != null ? suCo.getNgayXayRa() : LocalDateTime.now();
+                LocalDateTime ketThuc = batDau.plusDays(1).withHour(23).withMinute(59);
+                ray.setThoiGianBatDauPhongToa(batDau);
+                ray.setThoiGianKetThucPhongToa(ketThuc);
+            }
+            duongRayRepo.save(ray);
+
+            ghiNhatKy(maTaiKhoan, "PHONG_TOA_RAY", "DUONG_RAY", suCo.getMaRay(),
+                    "Trạng thái: " + trangThaiCu,
+                    "Trạng thái: " + trangThaiMoi + " — Tiếp nhận sự cố " + maSuCo,
+                    diaChiIp);
+
+            // Quét và gắn thẻ lịch trình bị ảnh hưởng do phong tỏa ray
+            ganTheLichTrinhBiAnhHuong(suCo, ray, maTaiKhoan, diaChiIp);
+        } else if (suCo.getMaLichTrinh() != null && !suCo.getMaLichTrinh().isBlank()) {
+            // Không phong tỏa ray, nhưng có lỗi từ 1 tàu cụ thể (trễ/hỏng nhẹ)
+            // Quét và gắn thẻ lịch trình bị ảnh hưởng dây chuyền
+            ganTheLichTrinhBoiLichTrinhTre(suCo, mucDoChinhThuc, maTaiKhoan, diaChiIp);
         }
 
-        return "PHONG_TOA_TAM"; // Mặc định
+        // Ghi nhật ký tiếp nhận
+        ghiNhatKy(maTaiKhoan, "TIEP_NHAN_SU_CO", "SU_CO", maSuCo,
+                "Mức độ ban đầu: " + suCo.getMucDo(),
+                "Tiếp nhận — Mức độ chính thức: " + mucDoChinhThuc
+                        + ", Phong tỏa: " + (coPhongToaRay ? loaiPhongToa : "Không"),
+                diaChiIp);
+
+        return suCoRepo.findById(maSuCo).orElseThrow();
     }
+
 
     /**
      * Tính thời gian xử lý ước tính dựa trên mức độ
@@ -106,35 +154,110 @@ public class SuCoService {
         }
     }
 
+
     /**
-     * Quét và gắn thẻ các lịch trình bị ảnh hưởng
+     * Quét và gắn thẻ các lịch trình bị ảnh hưởng bởi phong tỏa ray.
+     *
+     * Cửa sổ chiếm ray (track window) theo vai trò — khớp với scheduleOptimizer.js:
+     *   XUAT_PHAT  : [gioDi − 30p,  gioDi + 15p]
+     *   DIEM_CUOI  : [gioDen − 1p,  gioDen + 30p]
+     *   TRUNG_GIAN : [gioDen − 1p,  gioDi + 15p]
+     *
+     * Lịch trình bị ảnh hưởng khi window của nó GIAO với [thoiDiemBatDau, thoiDiemKetThuc].
      */
     private void ganTheLichTrinhBiAnhHuong(SuCo suCo, DuongRay ray, String maTaiKhoan, String diaChiIp) {
-        // Tính khoảng thời gian ảnh hưởng
         LocalDateTime thoiDiemBatDau = suCo.getNgayXayRa();
         LocalDateTime thoiDiemKetThuc = tinhThoiDiemKetThucAnhHuong(suCo, ray);
 
-        // Tìm tất cả lịch trình sử dụng ray này
-        List<LichTrinh> tatCaLichTrinh = lichTrinhRepo.findByMaRay(ray.getMaRay());
+        // ⚠️ Chỉ lọc lịch trình trong ngày xảy ra sự cố — tránh ảnh hưởng sai sang ngày khác
+        String ngaySuCo = thoiDiemBatDau.toLocalDate().toString(); // "yyyy-MM-dd"
+        List<LichTrinh> tatCaLichTrinh = lichTrinhRepo.findByNgayChayChuyenTauAndMaRay(ngaySuCo, ray.getMaRay());
 
-        // Lọc các lịch trình trong khoảng thời gian ảnh hưởng
         for (LichTrinh lt : tatCaLichTrinh) {
-            // Kiểm tra xem lịch trình có trong khoảng thời gian ảnh hưởng không
-            if (lt.getGioDenDuKien() != null && lt.getGioDiDuKien() != null) {
-                boolean trongKhoangThoiGian = 
-                    !lt.getGioDiDuKien().isBefore(thoiDiemBatDau) && 
-                    !lt.getGioDenDuKien().isAfter(thoiDiemKetThuc);
+            LocalDateTime gioDen = lt.getGioDenDuKien();
+            LocalDateTime gioDi  = lt.getGioDiDuKien();
+
+            // Tính track window theo vai trò tàu (giống scheduleOptimizer.js)
+            LocalDateTime winStart, winEnd;
+            if (gioDen == null && gioDi != null) {
+                // XUAT_PHAT: không có giờ đến
+                winStart = gioDi.minusMinutes(30);
+                winEnd   = gioDi.plusMinutes(15);
+            } else if (gioDi == null && gioDen != null) {
+                // DIEM_CUOI: không có giờ đi
+                winStart = gioDen.minusMinutes(1);
+                winEnd   = gioDen.plusMinutes(30); // (rời ray 15p + đệm 15p)
+            } else if (gioDen != null && gioDi != null) {
+                // TRUNG_GIAN: có cả hai
+                winStart = gioDen.minusMinutes(1);
+                winEnd   = gioDi.plusMinutes(15);
+            } else {
+                continue; // Thiếu dữ liệu giờ — bỏ qua
+            }
+
+            // Kiểm tra overlap: [winStart, winEnd] ∩ [batDau, ketThuc] ≠ ∅
+            boolean overlap = !winEnd.isBefore(thoiDiemBatDau) && !winStart.isAfter(thoiDiemKetThuc);
+
+            if (overlap && lt.getMaSuCoAnhHuong() == null) {
+                lt.setMaSuCoAnhHuong(suCo.getMaSuCo());
+                lt.setPhuongAnXuLy("CHO_RAY");
+                lichTrinhRepo.save(lt);
+
+                ghiNhatKy(maTaiKhoan, "GAN_THE_SU_CO", "LICH_TRINH", lt.getMaLichTrinh(),
+                        "Không có sự cố",
+                        "Bị ảnh hưởng bởi sự cố " + suCo.getMaSuCo() + " (phong tỏa " +
+                        thoiDiemBatDau + " → " + thoiDiemKetThuc + "), phương án: CHO_RAY",
+                        diaChiIp);
+            }
+        }
+    }
+
+    /**
+     * Quét các lịch trình bị ảnh hưởng liên đới bởi 1 chuyến tàu bị sự cố (không phong tỏa toàn bộ ray)
+     */
+    private void ganTheLichTrinhBoiLichTrinhTre(SuCo suCo, String mucDo, String maTaiKhoan, String diaChiIp) {
+        LichTrinh sourceLt = lichTrinhRepo.findById(suCo.getMaLichTrinh()).orElse(null);
+        if (sourceLt == null || sourceLt.getMaRay() == null) return;
+
+        // Ước tính tàu chiếm ray thêm bao lâu
+        Integer phutXuLy = tinhThoiGianXuLyUocTinh(mucDo);
+        if (phutXuLy == null) phutXuLy = 120; // 2 tiếng mặc định
+
+        LocalDateTime thoiDiemBatDau = suCo.getNgayXayRa();
+        LocalDateTime thoiDiemKetThuc = thoiDiemBatDau.plusMinutes(phutXuLy);
+        
+        LocalDateTime gioDiGoc = sourceLt.getGioDiDuKien();
+        if (gioDiGoc == null && sourceLt.getGioDenDuKien() != null) gioDiGoc = sourceLt.getGioDenDuKien().plusMinutes(30);
+        if (gioDiGoc != null && thoiDiemKetThuc.isBefore(gioDiGoc)) {
+            thoiDiemKetThuc = gioDiGoc.plusMinutes(phutXuLy);
+        }
+
+        // ⚠️ Chỉ lọc lịch trình trong ngày xảy ra sự cố — tránh ảnh hưởng sai sang ngày khác
+        String ngaySuCo = thoiDiemBatDau.toLocalDate().toString();
+        List<LichTrinh> tatCaLichTrinh = lichTrinhRepo.findByNgayChayChuyenTauAndMaRay(ngaySuCo, sourceLt.getMaRay());
+
+        for (LichTrinh lt : tatCaLichTrinh) {
+            LocalDateTime den = lt.getGioDenDuKien();
+            LocalDateTime di = lt.getGioDiDuKien();
+
+            if (den == null && di != null) den = di.minusMinutes(30);
+            if (di == null && den != null) di = den.plusMinutes(30);
+
+            if (den != null && di != null) {
+                // Kiểm tra xem lịch trình có nằm trong dải thời gian tàu sự cố chiếm dụng hay không
+                boolean biAnhHuong = !di.isBefore(thoiDiemBatDau) && !den.isAfter(thoiDiemKetThuc);
                 
-                if (trongKhoangThoiGian && lt.getMaSuCoAnhHuong() == null) {
-                    // Chưa bị gắn thẻ sự cố khác
+                if (biAnhHuong && lt.getMaSuCoAnhHuong() == null) {
                     lt.setMaSuCoAnhHuong(suCo.getMaSuCo());
-                    lt.setPhuongAnXuLy("CHO_RAY"); // Mặc định chờ ray
+                    lt.setPhuongAnXuLy("CHO_RAY");
                     lichTrinhRepo.save(lt);
 
-                    // Ghi nhật ký
+                    String isSource = lt.getMaLichTrinh().equals(sourceLt.getMaLichTrinh()) ? "Nguồn sự cố" : "Bị kẹt dây chuyền";
+                    String maChuyen = sourceLt.getChuyenTau() != null ? sourceLt.getChuyenTau().getMaChuyenTau() : sourceLt.getMaLichTrinh();
+                    
                     ghiNhatKy(maTaiKhoan, "GAN_THE_SU_CO", "LICH_TRINH", lt.getMaLichTrinh(),
                             "Không có sự cố",
-                            "Bị ảnh hưởng bởi sự cố " + suCo.getMaSuCo() + ", phương án: CHO_RAY",
+                            isSource + " (" + suCo.getMaSuCo() + ") từ chuyến " + maChuyen + ", phương án: CHO_RAY",
                             diaChiIp);
                 }
             }
@@ -142,21 +265,32 @@ public class SuCoService {
     }
 
     /**
-     * Tính thời điểm kết thúc ảnh hưởng
+     * Tính thời điểm kết thúc ảnh hưởng của sự cố.
+     * Ưu tiên: thoiGianXuLyUocTinh trên suCo (người dùng nhập)
+     *         → thoiGianXuLyUocTinh trên ray (đã ghi khi tiếp nhận)
+     *         → theo mức độ sự cố → fallback 2 giờ.
      */
     private LocalDateTime tinhThoiDiemKetThucAnhHuong(SuCo suCo, DuongRay ray) {
-        LocalDateTime batDau = suCo.getNgayXayRa();
-        
-        if ("PHONG_TOA_CUNG".equals(xacDinhTrangThaiPhongToa(suCo))) {
-            // Phong tỏa cứng: ảnh hưởng đến cuối ngày + 1
+        LocalDateTime batDau = suCo.getNgayXayRa() != null ? suCo.getNgayXayRa() : LocalDateTime.now();
+
+        // Sử dụng trạng thái thực sự trên ray để quyết định (đã được cập nhật trong tiepNhanVaDanhGia)
+        if ("PHONG_TOA_CUNG".equals(ray.getTrangThai())) {
             return batDau.plusDays(1).withHour(23).withMinute(59);
-        } else if (ray.getThoiGianXuLyUocTinh() != null) {
-            // Phong tỏa tạm: ảnh hưởng theo thời gian ước tính
+        }
+
+        // Ưu tiên 1: người dùng nhập khi tiếp nhận
+        if (suCo.getThoiGianXuLyUocTinh() != null) {
+            return batDau.plusMinutes(suCo.getThoiGianXuLyUocTinh());
+        }
+
+        // Ưu tiên 2: đã ghi lên ray
+        if (ray.getThoiGianXuLyUocTinh() != null) {
             return batDau.plusMinutes(ray.getThoiGianXuLyUocTinh());
         }
-        
-        // Mặc định: 2 giờ
-        return batDau.plusHours(2);
+
+        // Ưu tiên 3: theo mức độ
+        Integer phut = tinhThoiGianXuLyUocTinh(suCo.getMucDo() != null ? suCo.getMucDo() : "TRUNG_BINH");
+        return phut != null ? batDau.plusMinutes(phut) : batDau.plusHours(2);
     }
 
     /**
@@ -222,7 +356,9 @@ public class SuCoService {
             throw new RuntimeException("Không thể xác định ngày chạy của lịch trình");
         }
         
-        LocalDateTime ngayChay = LocalDateTime.parse(chuyenTau.getNgayChay());
+        java.time.LocalDate ngayChay = chuyenTau.getNgayChay().contains("T") 
+                ? LocalDateTime.parse(chuyenTau.getNgayChay()).toLocalDate() 
+                : java.time.LocalDate.parse(chuyenTau.getNgayChay());
         
         // Tìm các lịch trình khác cùng ray trong cùng ngày
         List<LichTrinh> lichTrinhCungRay = lichTrinhRepo.findByMaRay(maRayMoi);
@@ -232,10 +368,12 @@ public class SuCoService {
                 // Kiểm tra cùng ngày
                 ChuyenTau ctKhac = lt.getChuyenTau();
                 if (ctKhac != null && ctKhac.getNgayChay() != null) {
-                    LocalDateTime ngayChayKhac = LocalDateTime.parse(ctKhac.getNgayChay());
+                    java.time.LocalDate ngayChayKhac = ctKhac.getNgayChay().contains("T")
+                            ? LocalDateTime.parse(ctKhac.getNgayChay()).toLocalDate()
+                            : java.time.LocalDate.parse(ctKhac.getNgayChay());
                     
                     // Chỉ kiểm tra nếu cùng ngày
-                    if (ngayChay.toLocalDate().equals(ngayChayKhac.toLocalDate())) {
+                    if (ngayChay.equals(ngayChayKhac)) {
                         // Kiểm tra giao nhau cửa sổ thời gian
                         if (kiemTraGiaoNhauThoiGian(lichTrinh, lt)) {
                             throw new RuntimeException("Xung đột lịch trình với chuyến " + 
@@ -247,65 +385,91 @@ public class SuCoService {
         }
     }
 
+    private LocalDateTime[] getTrackWindow(LichTrinh lt) {
+        LocalDateTime den = lt.getGioDenDuKien();
+        LocalDateTime di = lt.getGioDiDuKien();
+        int soPhutTre = lt.getSoPhutTre() != null ? lt.getSoPhutTre() : 0;
+        
+        if (den == null && di != null) { // XUAT_PHAT
+            return new LocalDateTime[] { di.minusMinutes(30), di.plusMinutes(15 + soPhutTre) };
+        }
+        if (di == null && den != null) { // DIEM_CUOI
+            return new LocalDateTime[] { den.minusMinutes(1), den.plusMinutes(30 + soPhutTre) };
+        }
+        if (den != null && di != null) { // TRUNG_GIAN
+            return new LocalDateTime[] { den.minusMinutes(1), di.plusMinutes(15 + soPhutTre) };
+        }
+        return null;
+    }
+
     /**
      * Kiểm tra giao nhau cửa sổ thời gian
-     * Cửa sổ chiếm ray = giờ đến -> giờ đi + 15 phút buffer + số phút trễ
+     * Dựa trên vai trò chuyến tàu (tính toán track window giống scheduleOptimizer)
      */
     private boolean kiemTraGiaoNhauThoiGian(LichTrinh lt1, LichTrinh lt2) {
-        LocalDateTime start1 = lt1.getGioDenDuKien();
-        // Cửa sổ kết thúc = giờ đi + 15' buffer + số phút trễ
-        int bufferMinutes1 = 15 + (lt1.getSoPhutTre() != null ? lt1.getSoPhutTre() : 0);
-        LocalDateTime end1 = lt1.getGioDiDuKien().plusMinutes(bufferMinutes1);
-
-        LocalDateTime start2 = lt2.getGioDenDuKien();
-        int bufferMinutes2 = 15 + (lt2.getSoPhutTre() != null ? lt2.getSoPhutTre() : 0);
-        LocalDateTime end2 = lt2.getGioDiDuKien().plusMinutes(bufferMinutes2);
-
-        return !(end1.isBefore(start2) || end2.isBefore(start1));
+        LocalDateTime[] win1 = getTrackWindow(lt1);
+        LocalDateTime[] win2 = getTrackWindow(lt2);
+        
+        if (win1 == null || win2 == null) return false;
+        
+        LocalDateTime start1 = win1[0];
+        LocalDateTime end1 = win1[1];
+        
+        LocalDateTime start2 = win2[0];
+        LocalDateTime end2 = win2[1];
+        
+        return start1.isBefore(end2) && start2.isBefore(end1);
     }
 
     /**
      * Giải phóng đường ray (chỉ BQL mới được phép với PHONG_TOA_CUNG)
      */
     @Transactional
-    public void giaiPhongDuongRay(String maRay, String maSuCo, String maTaiKhoan, 
+    public void giaiPhongDuongRay(String maRay, String maSuCo, String maTaiKhoan,
                                    String quyenTruyCap, String diaChiIp) {
-        DuongRay ray = duongRayRepo.findById(maRay)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy đường ray"));
-
-        String trangThaiCu = ray.getTrangThai();
-
-        // Kiểm tra quyền
-        if ("PHONG_TOA_CUNG".equals(trangThaiCu) && !"BAN_QUAN_LY".equals(quyenTruyCap)) {
-            throw new RuntimeException("Chỉ Ban Quản lý mới có quyền giải phóng phong tỏa cứng");
-        }
 
         // Kiểm tra tất cả lịch trình bị ảnh hưởng đã được xử lý
         List<LichTrinh> lichTrinhChuaXuLy = lichTrinhRepo.findByMaSuCoAnhHuongAndPhuongAnXuLy(
                 maSuCo, "CHO_RAY");
-
         if (!lichTrinhChuaXuLy.isEmpty()) {
-            throw new RuntimeException("Còn " + lichTrinhChuaXuLy.size() + 
+            throw new RuntimeException("Còn " + lichTrinhChuaXuLy.size() +
                     " lịch trình chưa được xử lý phương án");
         }
 
-        // Giải phóng ray
-        ray.setTrangThai("SAN_SANG");
-        ray.setThoiGianXuLyUocTinh(null);
-        ray.setThoiGianPhongToaUocTinh(null);
-        duongRayRepo.save(ray);
+        String trangThaiCu = "N/A";
 
-        // Cập nhật trạng thái sự cố
+        // Chỉ giải phóng ray nếu sự cố có gắn ray
+        if (maRay != null && !maRay.isBlank()) {
+            DuongRay ray = duongRayRepo.findById(maRay)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy đường ray: " + maRay));
+
+            trangThaiCu = ray.getTrangThai();
+
+            // Kiểm tra quyền với phong tỏa cứng
+            if ("PHONG_TOA_CUNG".equals(trangThaiCu) && !"BAN_QUAN_LY".equals(quyenTruyCap)) {
+                throw new RuntimeException("Chỉ Ban Quản lý mới có quyền giải phóng phong tỏa cứng");
+            }
+
+            ray.setTrangThai("SAN_SANG");
+            ray.setThoiGianXuLyUocTinh(null);
+            ray.setThoiGianPhongToaUocTinh(null);
+            // ── Phương án 2: xóa cửa sổ phong tỏa khi giải phóng ────────
+            ray.setThoiGianBatDauPhongToa(null);
+            ray.setThoiGianKetThucPhongToa(null);
+            duongRayRepo.save(ray);
+        }
+
+        // Cập nhật trạng thái sự cố -> DA_XU_LY
         SuCo suCo = suCoRepo.findById(maSuCo)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy sự cố"));
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy sự cố: " + maSuCo));
         suCo.setTrangThaiXuLy("DA_XU_LY");
         suCo.setNgayXuLy(LocalDateTime.now());
         suCoRepo.save(suCo);
 
         // Ghi nhật ký
-        ghiNhatKy(maTaiKhoan, "GIAI_PHONG_RAY", "DUONG_RAY", maRay,
-                "Trạng thái: " + trangThaiCu,
-                "Trạng thái: SAN_SANG, Sự cố " + maSuCo + " đã xử lý xong",
+        ghiNhatKy(maTaiKhoan, "GIAI_PHONG_RAY", "SU_CO", maSuCo,
+                "Trạng thái ray: " + trangThaiCu,
+                "Sự cố " + maSuCo + " đã xử lý xong" + (maRay != null ? ", ray " + maRay + " → SAN_SANG" : " (không có ray)"),
                 diaChiIp);
     }
 
@@ -342,6 +506,9 @@ public class SuCoService {
         ray.setTrangThai("SAN_SANG");
         ray.setThoiGianXuLyUocTinh(null);
         ray.setThoiGianPhongToaUocTinh(null);
+        // ── Phương án 2: xóa cửa sổ phong tỏa ───────────────────────────
+        ray.setThoiGianBatDauPhongToa(null);
+        ray.setThoiGianKetThucPhongToa(null);
         duongRayRepo.save(ray);
 
         // Đánh dấu sự cố là DA_XU_LY
@@ -380,10 +547,53 @@ public class SuCoService {
     }
 
     /**
-     * Lấy danh sách lịch trình bị ảnh hưởng bởi sự cố
+     * Lấy danh sách lịch trình bị ảnh hưởng bởi sự cố (bao gồm tĩnh và động)
      */
     public List<LichTrinh> layLichTrinhBiAnhHuong(String maSuCo) {
-        return lichTrinhRepo.findByMaSuCoAnhHuong(maSuCo);
+        // 1. Luôn lấy những lịch trình đã được gắn thẻ trực tiếp (do liên đới, trễ, hoặc đã gắn thẻ lúc tiếp nhận)
+        List<LichTrinh> tagged = new java.util.ArrayList<>(lichTrinhRepo.findByMaSuCoAnhHuong(maSuCo));
+
+        // 2. Tính toán động: Nếu sự cố đang phong tỏa ray, quét tất cả lịch trình trên ray đó
+        SuCo suCo = suCoRepo.findById(maSuCo).orElse(null);
+        if (suCo != null && suCo.getMaRay() != null) {
+            DuongRay ray = duongRayRepo.findById(suCo.getMaRay()).orElse(null);
+            if (ray != null && ("PHONG_TOA_TAM".equals(ray.getTrangThai()) || "PHONG_TOA_CUNG".equals(ray.getTrangThai()))) {
+                
+                LocalDateTime batDau = suCo.getNgayXayRa() != null ? suCo.getNgayXayRa() : LocalDateTime.now();
+                LocalDateTime ketThuc = tinhThoiDiemKetThucAnhHuong(suCo, ray);
+                String ngaySuCo = batDau.toLocalDate().toString();
+                
+                List<LichTrinh> lichTrinhTrenRay = lichTrinhRepo.findByNgayChayChuyenTauAndMaRay(ngaySuCo, ray.getMaRay());
+                
+                for (LichTrinh lt : lichTrinhTrenRay) {
+                    // Bỏ qua nếu đã có trong danh sách tagged
+                    boolean alreadyAdded = tagged.stream().anyMatch(t -> t.getMaLichTrinh().equals(lt.getMaLichTrinh()));
+                    if (alreadyAdded) continue;
+
+                    LocalDateTime gioDen = lt.getGioDenDuKien();
+                    LocalDateTime gioDi  = lt.getGioDiDuKien();
+                    LocalDateTime winStart, winEnd;
+
+                    if (gioDen == null && gioDi != null) {
+                        winStart = gioDi.minusMinutes(30);
+                        winEnd   = gioDi.plusMinutes(15);
+                    } else if (gioDi == null && gioDen != null) {
+                        winStart = gioDen.minusMinutes(1);
+                        winEnd   = gioDen.plusMinutes(30);
+                    } else if (gioDen != null && gioDi != null) {
+                        winStart = gioDen.minusMinutes(1);
+                        winEnd   = gioDi.plusMinutes(15);
+                    } else {
+                        continue;
+                    }
+
+                    if (!winEnd.isBefore(batDau) && !winStart.isAfter(ketThuc)) {
+                        tagged.add(lt);
+                    }
+                }
+            }
+        }
+        return tagged;
     }
 
     /**
@@ -425,7 +635,8 @@ public class SuCoService {
         }
         
         // Cập nhật trạng thái
-        if (soPhutTre >= 20) {
+        int delayThreshold = getRuleValue("QT-05", 15);
+        if (soPhutTre >= delayThreshold) {
             lichTrinh.setTrangThai("TRE_NGHIEM_TRONG");
         } else if (soPhutTre > 0) {
             lichTrinh.setTrangThai("TRE");
@@ -472,8 +683,8 @@ public class SuCoService {
                         lt.getGioDenDuKien()
                 ).toMinutes();
                 
-                // Nếu khoảng cách < 30 phút, có thể bị ảnh hưởng
-                if (khoangCachPhut < 30) {
+                int influenceThreshold = getRuleValue("QT-05", 15) * 2; // Gấp đôi ngưỡng cảnh báo
+                if (khoangCachPhut < influenceThreshold) {
                     int soPhutTreHienTai = lt.getSoPhutTre() != null ? lt.getSoPhutTre() : 0;
                     int soPhutTreMoi = soPhutTreHienTai + (soPhutTreBoSung / 2); // Giảm dần
                     
@@ -495,7 +706,8 @@ public class SuCoService {
      * Kiểm tra ngưỡng 20 phút - Yêu cầu thu hồi lệnh
      */
     public boolean kiemTraNguong20Phut(LichTrinh lichTrinh) {
-        if (lichTrinh.getSoPhutTre() != null && lichTrinh.getSoPhutTre() >= 20) {
+        int threshold = getRuleValue("QT-05", 15);
+        if (lichTrinh.getSoPhutTre() != null && lichTrinh.getSoPhutTre() >= threshold) {
             // Kiểm tra xem tàu đã xuất phát chưa
             if (lichTrinh.getGioDiThucTe() == null) {
                 return true; // Cần thu hồi lệnh
@@ -543,97 +755,10 @@ public class SuCoService {
     }
 
     /**
-     * Lưu nháp sự cố (chưa kích hoạt phong tỏa)
+     * Lấy danh sách sự cố của người ghi nhận (NVNH xem báo cáo của mình)
      */
-    @Transactional
-    public SuCo luuNhapSuCo(SuCo suCo, String maTaiKhoan, String diaChiIp) {
-        suCo.setNgayTao(LocalDateTime.now());
-        suCo.setTrangThaiXuLy("NHAP");
-        SuCo savedSuCo = suCoRepo.save(suCo);
-        
-        // Ghi nhật ký
-        ghiNhatKy(maTaiKhoan, "LUU_NHAP_SU_CO", "SU_CO", savedSuCo.getMaSuCo(),
-                null, "Lưu nháp sự cố: " + suCo.getLoaiSuCo(),
-                diaChiIp);
-        
-        return savedSuCo;
-    }
-
-    /**
-     * Kích hoạt sự cố từ nháp
-     */
-    @Transactional
-    public SuCo kichHoatSuCoTuNhap(String maSuCo, String maTaiKhoan, String diaChiIp) {
-        SuCo suCo = suCoRepo.findById(maSuCo)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy sự cố"));
-        
-        if (!"NHAP".equals(suCo.getTrangThaiXuLy())) {
-            throw new RuntimeException("Sự cố không ở trạng thái nháp");
-        }
-        
-        // Kích hoạt như ghi nhận sự cố bình thường
-        return ghiNhanSuCo(suCo, maTaiKhoan, diaChiIp);
-    }
-
-    /**
-     * Báo cáo sự cố nhanh - Dành cho nhân viên nhà ga
-     * Tạo sự cố nhanh với thông tin tối thiểu
-     */
-    @Transactional
-    public SuCo baoCaoNhanh(String maLichTrinh, String loaiSuCo, String moTa, 
-                            String maTaiKhoan, String diaChiIp) {
-        // Lấy thông tin lịch trình
-        LichTrinh lichTrinh = lichTrinhRepo.findById(maLichTrinh)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch trình"));
-        
-        // Tạo sự cố với thông tin từ lịch trình
-        SuCo suCo = new SuCo();
-        suCo.setMaSuCo("SC-QUICK-" + System.currentTimeMillis());
-        suCo.setMaLichTrinh(maLichTrinh);
-        suCo.setMaRay(lichTrinh.getMaRay());
-        suCo.setMaNguoiGhiNhan(maTaiKhoan);
-        suCo.setLoaiSuCo(loaiSuCo != null ? loaiSuCo : "TRE_TAU");
-        
-        // Tự động xác định mức độ dựa trên số phút trễ
-        int soPhutTre = lichTrinh.getSoPhutTre() != null ? lichTrinh.getSoPhutTre() : 0;
-        if (soPhutTre >= 20) {
-            suCo.setMucDo("CAO");
-        } else if (soPhutTre >= 10) {
-            suCo.setMucDo("TRUNG_BINH");
-        } else {
-            suCo.setMucDo("THAP");
-        }
-        
-        // Mô tả tự động nếu không có
-        if (moTa == null || moTa.trim().isEmpty()) {
-            moTa = String.format(
-                "Báo cáo nhanh: Tàu %s trễ %d phút. Cần hỗ trợ từ điều hành.",
-                lichTrinh.getMaChuyenTau(),
-                soPhutTre
-            );
-        }
-        suCo.setMoTa(moTa);
-        
-        suCo.setKichHoatPhongToa(false); // Không phong tỏa tự động
-        suCo.setNgayXayRa(LocalDateTime.now());
-        suCo.setNgayTao(LocalDateTime.now());
-        suCo.setTrangThaiXuLy("CHUA_XU_LY");
-        
-        SuCo savedSuCo = suCoRepo.save(suCo);
-        
-        // Gắn thẻ sự cố cho lịch trình
-        if (lichTrinh.getMaSuCoAnhHuong() == null) {
-            lichTrinh.setMaSuCoAnhHuong(savedSuCo.getMaSuCo());
-            lichTrinh.setPhuongAnXuLy("CHO_RAY");
-            lichTrinhRepo.save(lichTrinh);
-        }
-        
-        // Ghi nhật ký
-        ghiNhatKy(maTaiKhoan, "BAO_CAO_NHANH", "SU_CO", savedSuCo.getMaSuCo(),
-                null, "Báo cáo nhanh: " + loaiSuCo + " - " + lichTrinh.getMaChuyenTau(),
-                diaChiIp);
-        
-        return savedSuCo;
+    public List<SuCo> layBaoCaoCuaToi(String maTaiKhoan) {
+        return suCoRepo.findByMaNguoiGhiNhanOrderByNgayTaoDesc(maTaiKhoan);
     }
 
     /**
@@ -649,5 +774,57 @@ public class SuCoService {
      */
     public SuCo luuSuCo(SuCo suCo) {
         return suCoRepo.save(suCo);
+    }
+
+    /**
+     * UC-06: Điều chỉnh giờ lịch trình (tàu không cần đổi ray, chỉ trễ giờ)
+     * NVĐH nhập giờ đến/đi mới, hệ thống tính số phút trễ và ghi nhận.
+     */
+    @Transactional
+    public void dieuChinhGioLichTrinh(String maLichTrinh,
+                                      String gioDenDuKienMoi,
+                                      String gioDiDuKienMoi,
+                                      String maTaiKhoan,
+                                      String diaChiIp) {
+
+        LichTrinh lt = lichTrinhRepo.findById(maLichTrinh)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch trình: " + maLichTrinh));
+
+        StringBuilder logCu  = new StringBuilder();
+        StringBuilder logMoi = new StringBuilder();
+
+        // Cập nhật giờ đến
+        if (gioDenDuKienMoi != null && !gioDenDuKienMoi.isBlank()) {
+            LocalDateTime gioMoi = LocalDateTime.parse(gioDenDuKienMoi);
+            logCu.append("GioDen: ").append(lt.getGioDenDuKien());
+            lt.setGioDenDuKien(gioMoi);
+            logMoi.append("GioDen: ").append(gioMoi);
+        }
+
+        // Cập nhật giờ đi
+        if (gioDiDuKienMoi != null && !gioDiDuKienMoi.isBlank()) {
+            LocalDateTime gioMoi = LocalDateTime.parse(gioDiDuKienMoi);
+            if (logCu.length() > 0) { logCu.append(", "); logMoi.append(", "); }
+            logCu.append("GioDi: ").append(lt.getGioDiDuKien());
+            lt.setGioDiDuKien(gioMoi);
+            logMoi.append("GioDi: ").append(gioMoi);
+        }
+
+        // Tính số phút trễ dựa trên giờ đến thực tế nếu có
+        if (lt.getGioDenThucTe() != null && lt.getGioDenDuKien() != null) {
+            long phutTre = java.time.Duration.between(lt.getGioDenDuKien(), lt.getGioDenThucTe()).toMinutes();
+            lt.setSoPhutTre((int) Math.max(0, phutTre));
+        }
+
+        // Đánh dấu phương án xử lý
+        lt.setPhuongAnXuLy("DIEU_CHINH_GIO");
+        lt.setNgayCapNhat(LocalDateTime.now());
+        lt.setMaNguoiCapNhat(maTaiKhoan);
+
+        lichTrinhRepo.save(lt);
+
+        // Ghi nhật ký
+        ghiNhatKy(maTaiKhoan, "DIEU_CHINH_GIO", "LICH_TRINH", maLichTrinh,
+                logCu.toString(), "DIEU_CHINH_GIO — " + logMoi.toString(), diaChiIp);
     }
 }

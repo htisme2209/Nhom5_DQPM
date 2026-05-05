@@ -28,7 +28,7 @@ const navConfig = {
     items: [
       { path: '/nha-ga', icon: '📊', label: 'Bảng điều khiển', end: true },
       { path: '/nha-ga/xac-nhan-tau', icon: '✅', label: 'Xác nhận Tàu' },
-      { path: '/nha-ga/san-ga', icon: '🏗️', label: 'Sân ga' },
+
       { path: '/nha-ga/ghi-nhan-su-co', icon: '📝', label: 'Ghi nhận Sự cố' },
       { path: '/nha-ga/chi-dao', icon: '📨', label: 'Chỉ đạo' },
     ],

@@ -111,7 +111,15 @@ export default function useInfrastructureForm(type, onSuccess, onError) {
                 id = editItem?.maGa;
                 successMsg = editItem ? 'Cập nhật ga thành công!' : 'Thêm ga mới thành công!';
             } else if (type === 'tuyen') {
-                payload = { ...form, khoangCachKm: parseFloat(form.khoangCachKm) };
+                const { gaGiua, ...tuyenDuongData } = form;
+                if (editItem) {
+                    payload = { ...form, khoangCachKm: parseFloat(form.khoangCachKm) }; // Dành cho PUT (nếu có API)
+                } else {
+                    payload = { 
+                        tuyenDuong: { ...tuyenDuongData, khoangCachKm: parseFloat(form.khoangCachKm) },
+                        danhSachGaGiua: gaGiua || []
+                    };
+                }
                 api = tuyenDuongAPI;
                 id = editItem?.maTuyen;
                 successMsg = editItem ? 'Cập nhật tuyến thành công!' : 'Thêm tuyến mới thành công!';

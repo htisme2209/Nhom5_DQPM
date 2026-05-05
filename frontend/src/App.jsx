@@ -72,7 +72,7 @@ function AppRoutes() {
         <Route path="tai-khoan" element={<TaiKhoanPage />} />
         <Route path="ha-tang" element={<HaTangPage />} />
         <Route path="nhat-ky" element={<NhatKyPage />} />
-        <Route path="quy-tac-he-thong" element={<QuyTacHethongPage />} />
+        <Route path="quy-tac" element={<QuyTacHethongPage />} />
       </Route>
 
       {/* ===== Nhà ga routes ===== */}
@@ -83,7 +83,6 @@ function AppRoutes() {
       }>
         <Route index element={<NhaGaDashboard />} />
         <Route path="xac-nhan-tau" element={<XacNhanTauPage />} />
-        <Route path="san-ga" element={<PlaceholderPage title="Quản lý Sân ga" description="Giám sát khu vực sân ga và hoạt động hành khách" />} />
         <Route path="ghi-nhan-su-co" element={<GhiNhanSuCoPage />} />
         <Route path="chi-dao" element={<ChiDaoPage />} />
       </Route>

@@ -69,20 +69,30 @@ export const taiKhoanAPI = {
 };
 
 export const suCoAPI = {
+  // Chung
   getAll: () => api.get('/su-co'),
-  create: (data) => api.post('/su-co', data),
-  update: (id, data) => api.put(`/su-co/${id}`, data),
+  getById: (id) => api.get(`/su-co/${id}`),
+
+  // UC-09: NVNH ghi nhận sự cố (chỉ báo cáo, không phong tỏa)
   ghiNhan: (data) => api.post('/su-co/ghi-nhan', data),
+
+  // NVNH xem báo cáo của mình
+  getCuaToi: () => api.get('/su-co/cua-toi'),
+
+  // UC-09/UC-06: NVĐH tiếp nhận & đánh giá (phong tỏa + quét LT)
+  tiepNhan: (maSuCo, data) => api.post(`/su-co/${maSuCo}/tiep-nhan`, data),
+
+  // UC-06: Xử lý phương án lịch trình
   getLichTrinhAnhHuong: (maSuCo) => api.get(`/su-co/${maSuCo}/lich-trinh-anh-huong`),
   xuLyPhuongAn: (data) => api.put('/su-co/xu-ly-phuong-an', data),
   giaiPhongRay: (data) => api.put('/su-co/giai-phong-ray', data),
   xuLyTreChuyen: (data) => api.post('/su-co/xu-ly-tre-chuyen', data),
   thuHoiLenh: (data) => api.post('/su-co/thu-hoi-lenh', data),
-  luuNhap: (data) => api.post('/su-co/luu-nhap', data),
-  kichHoat: (maSuCo) => api.post(`/su-co/${maSuCo}/kich-hoat`),
-  baoCaoNhanh: (data) => api.post('/su-co/bao-cao-nhanh', data),
   capNhatTrangThai: (maSuCo, trangThaiXuLy) => api.put(`/su-co/${maSuCo}`, { trangThaiXuLy }),
+  // UC-06: Điều chỉnh giờ lịch trình (không cần đổi ray)
+  dieuChinhGio: (data) => api.put('/su-co/dieu-chinh-gio', data),
 };
+
 
 export const keHoachAPI = {
   getAll: (params) => api.get('/ke-hoach', { params }),
@@ -123,6 +133,11 @@ export const xacNhanTauAPI = {
   xacNhan: (data) => api.post('/xac-nhan-tau/xac-nhan', data),
   huyXacNhan: (maLichTrinh) => api.post(`/xac-nhan-tau/huy-xac-nhan/${maLichTrinh}`),
   kiemTraQuaHan: () => api.get('/xac-nhan-tau/kiem-tra-qua-han'),
+};
+
+export const quyTacAPI = {
+  getAll: () => api.get('/quy-tac'),
+  update: (id, data) => api.put(`/quy-tac/${id}`, data),
 };
 
 export default api;

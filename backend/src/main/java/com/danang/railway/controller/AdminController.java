@@ -2,6 +2,7 @@ package com.danang.railway.controller;
 
 import com.danang.railway.dto.ApiResponse;
 import com.danang.railway.entity.*;
+import com.danang.railway.dto.TuyenDuongDTO;
 import com.danang.railway.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -87,8 +88,27 @@ public class AdminController {
     }
 
     @PostMapping("/tuyen-duong")
-    public ResponseEntity<ApiResponse<TuyenDuong>> createTuyenDuong(@RequestBody TuyenDuong tuyenDuong) {
-        return ResponseEntity.ok(ApiResponse.ok("Tạo tuyến đường thành công", tuyenDuongRepo.save(tuyenDuong)));
+    public ResponseEntity<ApiResponse<TuyenDuong>> createTuyenDuong(@RequestBody TuyenDuongDTO dto) {
+        if (dto.getTuyenDuong().getMaTuyen() == null || dto.getTuyenDuong().getMaTuyen().isEmpty()) {
+            dto.getTuyenDuong().setMaTuyen("TD-" + System.currentTimeMillis());
+        }
+        TuyenDuong savedTuyen = tuyenDuongRepo.save(dto.getTuyenDuong());
+        
+        // Lưu ga trung gian
+        if (dto.getDanhSachGaGiua() != null) {
+            int index = 1;
+            for (String maGa : dto.getDanhSachGaGiua()) {
+                GaTuyen gt = new GaTuyen();
+                gt.setMaTuyen(savedTuyen.getMaTuyen());
+                gt.setMaGa(maGa);
+                gt.setThuTuTrenTuyen(index++);
+                gt.setThoiGianDungPhut(15); // Default stop time
+                gt.setKhoangCachTuDauKm(java.math.BigDecimal.valueOf(50.0 * index)); // Fake distance for middle stations
+                gaTuyenRepo.save(gt);
+            }
+        }
+        
+        return ResponseEntity.ok(ApiResponse.ok("Tạo tuyến đường thành công", savedTuyen));
     }
 
     // === GA TUYẾN ===

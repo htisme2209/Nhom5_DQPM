@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import useInfrastructure from '../../hooks/useInfrastructure';
 import useInfrastructureForm from '../../hooks/useInfrastructureForm';
 import useToast from '../../hooks/useToast';
+import { quyTacAPI } from '../../services/api';
 import InfrastructureHeader from '../../components/infrastructure/InfrastructureHeader';
 import InfrastructureTabs from '../../components/infrastructure/InfrastructureTabs';
 import RayTable from '../../components/infrastructure/RayTable';
@@ -15,6 +16,7 @@ import Modal from '../../components/Modal';
 export default function HaTangPage() {
   const [tab, setTab] = useState('ray');
   const [showForm, setShowForm] = useState(false);
+  const [rules, setRules] = useState([]);
   const { duongRay, tau, gaList, tuyenDuong, chuyenTau, loading, reload } = useInfrastructure();
   const { toast, showSuccess, showError } = useToast();
 
@@ -35,6 +37,25 @@ export default function HaTangPage() {
     },
     (msg) => showError(msg)
   );
+
+  useEffect(() => {
+    const fetchRules = async () => {
+      try {
+        const res = await quyTacAPI.getAll();
+        if (res.data.success) {
+          setRules(res.data.data);
+        }
+      } catch (err) {
+        console.error('Không thể lấy quy tắc:', err);
+      }
+    };
+    fetchRules();
+  }, []);
+
+  const getMinDays = () => {
+    const rule = rules.find(r => r.maQuyTac === 'QT-07');
+    return rule ? parseInt(rule.giaTri) : 30; // Fallback 30 ngày
+  };
 
   const handleOpenCreate = (type) => {
     setTab(type);
@@ -90,8 +111,9 @@ export default function HaTangPage() {
 
   const getDateConstraints = () => {
     const today = new Date();
+    const minDays = getMinDays();
     const minDate = new Date(today);
-    minDate.setMonth(minDate.getMonth() + 1);
+    minDate.setDate(minDate.getDate() + minDays);
     
     return {
       minDate: minDate.toISOString().split('T')[0],
@@ -102,11 +124,13 @@ export default function HaTangPage() {
   const isDateWithinRange = (dateString) => {
     if (!dateString) return true;
     const selectedDate = new Date(dateString);
-    const today = new Date();
-    const minDate = new Date(today);
-    minDate.setMonth(minDate.getMonth() + 1);
+    const minDays = getMinDays();
     
-    return selectedDate >= minDate;
+    const minAllowedDate = new Date();
+    minAllowedDate.setDate(minAllowedDate.getDate() + minDays);
+    minAllowedDate.setHours(0, 0, 0, 0);
+    
+    return selectedDate >= minAllowedDate;
   };
 
   const handleTuyenChange = (maTuyen) => {

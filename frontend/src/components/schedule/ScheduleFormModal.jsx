@@ -647,6 +647,7 @@ export default function ScheduleFormModal({
                     selectedRay={form.maRay}
                     onSelectRay={(maRay) => setForm({ ...form, maRay })}
                     editItem={editItem}
+                    targetDate={form.ngayChay || null}
                     newSchedulePreview={
                         form.gioDenDuKien && form.gioDiDuKien
                             ? {

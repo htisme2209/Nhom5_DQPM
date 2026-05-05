@@ -1,483 +1,643 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { suCoAPI, lichTrinhAPI, duongRayAPI } from '../../services/api';
+import { suCoAPI, duongRayAPI } from '../../services/api';
 
-const MUC_DO_INFO = {
-    THAP:      { label: 'Thấp',     time: '~30 phút',        color: '#16A34A', bg: '#F0FDF4', border: '#86EFAC', icon: '🟢' },
-    TRUNG_BINH:{ label: 'Trung bình', time: '~60 phút',     color: '#D97706', bg: '#FFFBEB', border: '#FCD34D', icon: '🟡' },
-    CAO:       { label: 'Cao',       time: 'Phong tỏa cứng', color: '#EA580C', bg: '#FFF7ED', border: '#FDBA74', icon: '🟠' },
-    KHAN_CAP:  { label: 'Khẩn cấp', time: 'Phong tỏa cứng', color: '#DC2626', bg: '#FEF2F2', border: '#FCA5A5', icon: '🔴' },
+// ===== CONFIG =====
+const LOAI_SU_CO_OPTIONS = [
+  { value: 'SU_CO_DUONG_RAY', label: '🛤️ Sự cố đường ray', moTaGoi: 'Đường ray bị hỏng, biến dạng hoặc có vật cản' },
+  { value: 'SU_CO_KY_THUAT',  label: '⚙️ Sự cố kỹ thuật',  moTaGoi: 'Lỗi thiết bị điện, tín hiệu, hệ thống' },
+  { value: 'SU_CO_TAU',       label: '🚂 Sự cố tàu',        moTaGoi: 'Tàu gặp sự cố cơ học, không thể di chuyển' },
+  { value: 'MAT_LIEN_LAC',   label: '📡 Mất liên lạc',     moTaGoi: 'Mất liên lạc với tàu hoặc trạm' },
+  { value: 'AN_NINH',        label: '🚨 Sự cố an ninh',    moTaGoi: 'Tình huống an ninh, cần ứng phó khẩn cấp' },
+  { value: 'KHAC',           label: '📝 Khác',              moTaGoi: 'Mô tả rõ trong phần ghi chú' },
+];
+
+const MUC_DO_OPTIONS = [
+  { value: 'THAP',    label: '🟢 Bình thường', desc: 'Có thể xử lý trong vài phút', color: '#10B981', bg: '#ECFDF5' },
+  { value: 'TRUNG_BINH', label: '🟡 Đáng lo',  desc: 'Cần hỗ trợ của Điều hành',    color: '#F59E0B', bg: '#FFFBEB' },
+  { value: 'CAO',    label: '🔴 Khẩn cấp',   desc: 'Ảnh hưởng nghiêm trọng, cần xử lý ngay', color: '#EF4444', bg: '#FEF2F2' },
+];
+
+// Nhãn trạng thái sự cố để hiển thị trong "Báo cáo của tôi"
+const TRANG_THAI_CONFIG = {
+  CHO_TIEP_NHAN: { label: 'Chờ tiếp nhận', color: '#F59E0B', bg: '#FFFBEB', icon: '⏳' },
+  DANG_XU_LY:    { label: 'Đang xử lý',   color: '#3B82F6', bg: '#EFF6FF', icon: '🔧' },
+  DA_XU_LY:      { label: 'Đã xử lý',     color: '#10B981', bg: '#ECFDF5', icon: '✅' },
 };
 
 export default function GhiNhanSuCoPage() {
-    const navigate = useNavigate();
-    const [form, setForm] = useState({
-        maLichTrinh: '',
-        maRay: '',
-        loaiSuCo: 'SU_CO_KY_THUAT',
-        moTa: '',
-        mucDo: 'TRUNG_BINH',
-        kichHoatPhongToa: false
-    });
+  const navigate = useNavigate();
 
-    const [lichTrinhs, setLichTrinhs] = useState([]);
-    const [duongRays, setDuongRays] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [toast, setToast] = useState(null);
+  // ── State form ──────────────────────────────────────────
+  const [maRay, setMaRay] = useState('');
+  const [loaiSuCo, setLoaiSuCo] = useState('');
+  const [moTa, setMoTa] = useState('');
+  const [mucDo, setMucDo] = useState('TRUNG_BINH');
+  const [thoiGianXuLyUocTinh, setThoiGianXuLyUocTinh] = useState('');
+  const [ngayXayRa, setNgayXayRa] = useState(
+    () => new Date().toISOString().slice(0, 16)
+  );
 
-    // Kết quả sau khi ghi nhận
-    const [ghiNhanResult, setGhiNhanResult] = useState(null); // { suCo, lichTrinhBiAnhHuong }
-    const [loadingResult, setLoadingResult] = useState(false);
+  // ── State dữ liệu ────────────────────────────────────────
+  const [duongRayList, setDuongRayList] = useState([]);
+  const [loadingRay, setLoadingRay] = useState(true);
 
-    useEffect(() => { loadData(); }, []);
+  // ── State UI ─────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState('form'); // 'form' | 'bao-cao'
+  const [submitting, setSubmitting] = useState(false);
+  const [ketQua, setKetQua] = useState(null); // null | { success, suCo }
+  const [errors, setErrors] = useState({});
 
-    const loadData = async () => {
-        try {
-            const [ltRes, rayRes] = await Promise.all([
-                lichTrinhAPI.getAll(),
-                duongRayAPI.getAll()
-            ]);
-            const lt = Array.isArray(ltRes.data) ? ltRes.data : (ltRes.data?.data || []);
-            const ray = Array.isArray(rayRes.data) ? rayRes.data : (rayRes.data?.data || []);
-            // Chỉ hiển thị lịch trình DA_XAC_NHAN để chọn
-            setLichTrinhs(lt.filter(l => !l.trangThai || l.trangThai === 'DA_XAC_NHAN'));
-            setDuongRays(ray);
-        } catch (err) {
-            console.error('Lỗi tải dữ liệu:', err);
-        }
-    };
+  // ── State "Báo cáo của tôi" ──────────────────────────────
+  const [baoCaoList, setBaoCaoList] = useState([]);
+  const [loadingBaoCao, setLoadingBaoCao] = useState(false);
 
-    const showToast = (msg, type = 'success') => {
-        setToast({ msg, type });
-        setTimeout(() => setToast(null), 3500);
-    };
+  // ── Load đường ray ───────────────────────────────────────
+  useEffect(() => {
+    duongRayAPI.getAll()
+      .then(res => setDuongRayList(res.data?.data || res.data || []))
+      .catch(() => setDuongRayList([]))
+      .finally(() => setLoadingRay(false));
+  }, []);
 
-    const validateForm = () => {
-        if (!form.maRay) { showToast('Vui lòng chọn đường ray!', 'error'); return false; }
-        if (!form.moTa.trim()) { showToast('Vui lòng nhập mô tả chi tiết!', 'error'); return false; }
-        return true;
-    };
+  // ── Load báo cáo khi chuyển tab ──────────────────────────
+  useEffect(() => {
+    if (activeTab === 'bao-cao') loadBaoCaoCuaToi();
+  }, [activeTab]);
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!validateForm()) return;
-        setLoading(true);
-        try {
-            const res = await suCoAPI.ghiNhan({
-                ...form,
-                maSuCo: 'SC-' + Date.now(),
-                ngayXayRa: new Date().toISOString()
-            });
-            const suCo = res.data?.data || res.data;
-            showToast('Ghi nhận sự cố thành công! Đang tải danh sách lịch trình bị ảnh hưởng...');
+  const loadBaoCaoCuaToi = async () => {
+    setLoadingBaoCao(true);
+    try {
+      const res = await suCoAPI.getCuaToi();
+      setBaoCaoList(res.data?.data || res.data || []);
+    } catch {
+      setBaoCaoList([]);
+    } finally {
+      setLoadingBaoCao(false);
+    }
+  };
 
-            // Load lịch trình bị ảnh hưởng
-            setLoadingResult(true);
-            try {
-                const ltRes = await suCoAPI.getLichTrinhAnhHuong(suCo.maSuCo);
-                const lichTrinhBiAnhHuong = Array.isArray(ltRes.data) ? ltRes.data : (ltRes.data?.data || []);
-                setGhiNhanResult({ suCo, lichTrinhBiAnhHuong });
-            } catch (err) {
-                // Không load được lịch trình — vẫn hiển thị kết quả
-                setGhiNhanResult({ suCo, lichTrinhBiAnhHuong: [] });
-            } finally {
-                setLoadingResult(false);
-            }
-            resetForm();
-        } catch (err) {
-            showToast(err.response?.data?.message || err.message, 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
+  // ── Validate ─────────────────────────────────────────────
+  const validate = () => {
+    const errs = {};
+    if (!maRay)     errs.maRay    = 'Vui lòng chọn đường ray xảy ra sự cố';
+    if (!loaiSuCo)  errs.loaiSuCo = 'Vui lòng chọn loại sự cố';
+    if (!moTa.trim()) errs.moTa   = 'Vui lòng mô tả tình trạng hiện trường';
+    if (moTa.trim().length < 10) errs.moTa = 'Mô tả cần ít nhất 10 ký tự';
+    if (ngayXayRa) {
+      const dt = new Date(ngayXayRa);
+      const now = new Date();
+      const minAllowed = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24h trước
+      if (dt > now) errs.ngayXayRa = 'Thời gian xảy ra không thể là tương lai';
+      else if (dt < minAllowed) errs.ngayXayRa = 'Thời gian xảy ra không thể quá 24 giờ trước';
+    }
+    return errs;
+  };
 
-    const resetForm = () => {
-        setForm({ maLichTrinh: '', maRay: '', loaiSuCo: 'SU_CO_KY_THUAT', moTa: '', mucDo: 'TRUNG_BINH', kichHoatPhongToa: false });
-    };
+  // ── Submit ───────────────────────────────────────────────
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
 
-    // Hủy một lịch trình ngay từ trang ghi nhận
-    const handleHuyLichTrinh = async (lt) => {
-        if (!confirm(`Xác nhận hủy chuyến ${lt.maChuyenTau}?`)) return;
-        try {
-            await suCoAPI.xuLyPhuongAn({ maLichTrinh: lt.maLichTrinh, phuongAn: 'HUY_CHUYEN', maRayMoi: null });
-            showToast(`Đã hủy chuyến ${lt.maChuyenTau}`);
-            setGhiNhanResult(prev => ({
-                ...prev,
-                lichTrinhBiAnhHuong: prev.lichTrinhBiAnhHuong.map(
-                    l => l.maLichTrinh === lt.maLichTrinh ? { ...l, phuongAnXuLy: 'HUY_CHUYEN' } : l
-                )
-            }));
-        } catch (err) {
-            showToast(err.response?.data?.message || err.message, 'error');
-        }
-    };
+    setSubmitting(true);
+    setErrors({});
+    try {
+      const payload = {
+        // Không gửi maSuCo — backend tự sinh
+        maRay,
+        loaiSuCo,
+        moTa: moTa.trim(),
+        mucDo,
+        thoiGianXuLyUocTinh: thoiGianXuLyUocTinh ? parseInt(thoiGianXuLyUocTinh, 10) : null,
+        ngayXayRa: ngayXayRa ? new Date(ngayXayRa).toISOString() : new Date().toISOString(),
+        // Không có kichHoatPhongToa — NVĐH quyết định
+      };
 
-    // Chuyển sang điều phối ray
-    const handleDieuPhoiRay = (lt) => {
-        const params = new URLSearchParams({
-            suCoId: ghiNhanResult.suCo.maSuCo,
-            lichTrinhIds: lt.maLichTrinh
-        });
-        navigate(`/nha-ga/dieu-hanh/duong-ray?${params.toString()}`);
-        // Hoặc điều hướng đến XuLySuCoPage để NVĐH xử lý
-    };
+      const res = await suCoAPI.ghiNhan(payload);
+      const suCo = res.data?.data || res.data;
+      setKetQua({ success: true, suCo });
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Có lỗi xảy ra';
+      setKetQua({ success: false, message: msg });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-    // Chuyển toàn bộ sang XuLySuCoPage (điều hành xử lý)
-    const handleChuyenDieuHanh = () => {
-        navigate('/dieu-hanh/xu-ly-su-co');
-    };
+  // ── Reset form ───────────────────────────────────────────
+  const handleReset = () => {
+    setMaRay(''); setLoaiSuCo(''); setMoTa('');
+    setMucDo('TRUNG_BINH'); setThoiGianXuLyUocTinh(''); setErrors({}); setKetQua(null);
+    setNgayXayRa(new Date().toISOString().slice(0, 16));
+  };
 
-    const mucDoInfo = MUC_DO_INFO[form.mucDo] || MUC_DO_INFO.TRUNG_BINH;
+  // ── Format helpers ───────────────────────────────────────
+  const formatTime = (iso) => {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString('vi-VN'); } catch { return iso; }
+  };
+  const getRayLabel = (id) => {
+    const r = duongRayList.find(r => r.maRay === id);
+    return r ? `${r.maRay} — ${r.tenRay || ''}` : id;
+  };
+  const getLoaiLabel = (v) => LOAI_SU_CO_OPTIONS.find(o => o.value === v)?.label || v;
 
-    const formatTime = (dtStr) => {
-        if (!dtStr) return '--:--';
-        const d = new Date(dtStr);
-        return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    };
+  // ============================================================
+  // RENDER — Màn hình xác nhận sau submit
+  // ============================================================
+  if (ketQua) return (
+    <div style={S.page}>
+      <div style={{ ...S.card, maxWidth: 560, textAlign: 'center', padding: '48px 40px' }}>
+        {ketQua.success ? (
+          <>
+            <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
+            <h2 style={{ fontSize: 22, fontWeight: 700, color: '#065F46', marginBottom: 8 }}>
+              Báo cáo đã được gửi!
+            </h2>
+            <p style={{ color: '#6B7280', marginBottom: 24 }}>
+              Nhân viên Điều hành đã được thông báo và sẽ tiếp nhận sự cố.<br/>
+              Vui lòng <strong>giữ nguyên hiện trường</strong> và chờ hướng dẫn.
+            </p>
 
-    return (
-        <>
-            {/* Toast */}
-            {toast && (
-                <div className="toast-container">
-                    <div className={`toast ${toast.type}`}>
-                        {toast.type === 'success' ? '✅' : '❌'} {toast.msg}
-                    </div>
-                </div>
-            )}
-
-            {/* Page Header */}
-            <div className="page-header">
-                <div className="page-header-actions">
-                    <div>
-                        <p style={{ fontSize: '11px', color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                            UC-09: GHI NHẬN SỰ CỐ
-                        </p>
-                        <h1>Ghi Nhận Sự Cố Tại Nhà Ga</h1>
-                        <p>Báo cáo sự cố xảy ra tại đường ray và lịch trình tàu</p>
-                    </div>
-                </div>
+            <div style={S.infoBox}>
+              <InfoRow label="Mã sự cố" value={ketQua.suCo?.maSuCo || '—'} />
+              <InfoRow label="Đường ray" value={getRayLabel(ketQua.suCo?.maRay)} />
+              <InfoRow label="Loại sự cố" value={getLoaiLabel(ketQua.suCo?.loaiSuCo)} />
+              <InfoRow label="Thời gian" value={formatTime(ketQua.suCo?.ngayTao)} />
+              <InfoRow label="Trạng thái" value={
+                <span style={{ color: '#F59E0B', fontWeight: 600 }}>⏳ Chờ Điều hành tiếp nhận</span>
+              } />
             </div>
 
-            {/* ══════════════════════════════════════════
-                KẾT QUẢ SAU KHI GHI NHẬN SỰ CỐ
-            ══════════════════════════════════════════ */}
-            {ghiNhanResult && (
-                <div style={{ marginBottom: '24px' }}>
-                    {/* Banner thành công */}
-                    <div style={{
-                        background: '#F0FDF4', border: '1.5px solid #86EFAC',
-                        borderRadius: 'var(--radius-md)', padding: '16px 20px',
-                        display: 'flex', alignItems: 'start', gap: '14px', marginBottom: '16px'
-                    }}>
-                        <span style={{ fontSize: '28px' }}>✅</span>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 700, fontSize: '15px', color: '#15803D', marginBottom: '4px' }}>
-                                Đã ghi nhận sự cố: <strong>{ghiNhanResult.suCo.maSuCo}</strong>
-                            </div>
-                            <div style={{ fontSize: '13px', color: '#166534' }}>
-                                Hệ thống đã tự động phong tỏa đường ray và quét
-                                {' '}{ghiNhanResult.lichTrinhBiAnhHuong.length} lịch trình bị ảnh hưởng.
-                                Nhân viên Điều hành sẽ xử lý tiếp theo.
-                            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 28 }}>
+              <button style={S.btnSecondary} onClick={handleReset}>
+                + Ghi nhận sự cố mới
+              </button>
+              <button style={S.btnPrimary} onClick={() => { setActiveTab('bao-cao'); setKetQua(null); }}>
+                📋 Xem báo cáo của tôi
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 64, marginBottom: 16 }}>❌</div>
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: '#991B1B', marginBottom: 8 }}>
+              Gửi báo cáo thất bại
+            </h2>
+            <p style={{ color: '#6B7280', marginBottom: 24 }}>{ketQua.message}</p>
+            <button style={S.btnPrimary} onClick={() => setKetQua(null)}>
+              Thử lại
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ============================================================
+  // RENDER CHÍNH
+  // ============================================================
+  return (
+    <div style={S.page}>
+      {/* ── Header ── */}
+      <div style={S.header}>
+        <div>
+          <h1 style={S.headerTitle}>🚨 Ghi Nhận Sự Cố</h1>
+          <p style={S.headerSub}>Báo cáo sự cố tại nhà ga — Điều hành sẽ tiếp nhận và xử lý</p>
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <div style={S.tabs}>
+        <button
+          style={{ ...S.tab, ...(activeTab === 'form' ? S.tabActive : {}) }}
+          onClick={() => setActiveTab('form')}
+        >
+          📝 Ghi nhận sự cố
+        </button>
+        <button
+          style={{ ...S.tab, ...(activeTab === 'bao-cao' ? S.tabActive : {}) }}
+          onClick={() => setActiveTab('bao-cao')}
+        >
+          📋 Báo cáo của tôi
+        </button>
+      </div>
+
+      {/* ════════════════ TAB: FORM ════════════════ */}
+      {activeTab === 'form' && (
+        <div style={S.card}>
+          <div style={S.cardTitle}>📍 Thông Tin Sự Cố</div>
+          <p style={{ color: '#6B7280', fontSize: 13, marginBottom: 24 }}>
+            Mô tả trung thực tình trạng hiện trường. Nhân viên Điều hành sẽ đánh giá và quyết định phương án xử lý.
+          </p>
+
+          <form onSubmit={handleSubmit}>
+            {/* VỊ TRÍ XẢY RA */}
+            <FieldGroup label="📍 VỊ TRÍ XẢY RA" required error={errors.maRay}>
+              <select
+                value={maRay}
+                onChange={e => { setMaRay(e.target.value); setErrors(p => ({ ...p, maRay: null })); }}
+                style={{ ...S.input, ...(errors.maRay ? S.inputError : {}) }}
+                disabled={loadingRay}
+              >
+                <option value="">{loadingRay ? 'Đang tải...' : '-- Chọn đường ray --'}</option>
+                {duongRayList.map(r => (
+                  <option key={r.maRay} value={r.maRay}>
+                    {r.maRay} — {r.tenRay || ''} ({r.trangThai || 'SAN_SANG'})
+                  </option>
+                ))}
+              </select>
+            </FieldGroup>
+
+            {/* LOẠI SỰ CỐ */}
+            <FieldGroup label="🚨 LOẠI SỰ CỐ" required error={errors.loaiSuCo}>
+              <div style={S.radioGrid}>
+                {LOAI_SU_CO_OPTIONS.map(opt => (
+                  <label
+                    key={opt.value}
+                    style={{
+                      ...S.radioCard,
+                      ...(loaiSuCo === opt.value ? S.radioCardActive : {}),
+                    }}
+                    onClick={() => { setLoaiSuCo(opt.value); setErrors(p => ({ ...p, loaiSuCo: null })); }}
+                  >
+                    <input
+                      type="radio" name="loaiSuCo" value={opt.value}
+                      checked={loaiSuCo === opt.value} onChange={() => {}}
+                      style={{ display: 'none' }}
+                    />
+                    <strong>{opt.label}</strong>
+                    <span style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{opt.moTaGoi}</span>
+                  </label>
+                ))}
+              </div>
+            </FieldGroup>
+
+            {/* MÔ TẢ HIỆN TRƯỜNG */}
+            <FieldGroup label="📝 MÔ TẢ HIỆN TRƯỜNG" required error={errors.moTa}>
+              <textarea
+                value={moTa}
+                onChange={e => { setMoTa(e.target.value); setErrors(p => ({ ...p, moTa: null })); }}
+                placeholder="Mô tả chi tiết tình trạng hiện trường: vị trí cụ thể, biểu hiện sự cố, các yếu tố liên quan..."
+                rows={4}
+                style={{ ...S.input, resize: 'vertical', ...(errors.moTa ? S.inputError : {}) }}
+              />
+              <div style={{ textAlign: 'right', fontSize: 12, color: moTa.length < 10 ? '#EF4444' : '#9CA3AF' }}>
+                {moTa.length} ký tự {moTa.length < 10 && '(tối thiểu 10)'}
+              </div>
+            </FieldGroup>
+
+            {/* MỨC ĐỘ BAN ĐẦU */}
+            <FieldGroup label="⚠️ MỨC ĐỘ BAN ĐẦU" hint="Điều hành sẽ xác nhận lại mức độ chính thức">
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {MUC_DO_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value} type="button"
+                    onClick={() => setMucDo(opt.value)}
+                    style={{
+                      ...S.mucDoBtn,
+                      borderColor: mucDo === opt.value ? opt.color : '#E5E7EB',
+                      background: mucDo === opt.value ? opt.bg : '#fff',
+                      color: mucDo === opt.value ? opt.color : '#374151',
+                      fontWeight: mucDo === opt.value ? 700 : 400,
+                    }}
+                  >
+                    <span>{opt.label}</span>
+                    <span style={{ fontSize: 11, color: '#6B7280' }}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </FieldGroup>
+
+            {/* THỜI ĐIỂM XẢY RA */}
+            <FieldGroup label="🕐 THỜI ĐIỂM XẢY RA">
+              <input
+                type="datetime-local"
+                value={ngayXayRa}
+                onChange={e => setNgayXayRa(e.target.value)}
+                max={new Date().toISOString().slice(0, 16)}
+                min={new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16)}
+                style={{
+                  ...S.input,
+                  borderColor: errors.ngayXayRa ? '#DC2626' : undefined
+                }}
+              />
+              {errors.ngayXayRa && (
+                <div style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>{errors.ngayXayRa}</div>
+              )}
+            </FieldGroup>
+
+            {/* THỜI GIAN XỬ LÝ ƯỚC TÍNH */}
+            <FieldGroup label="⏳ THỜI GIAN XỬ LÝ ƯỚC TÍNH (TÙY CHỌN)" hint="Số phút dự định để khắc phục xong sự cố">
+              <input
+                type="number"
+                min="0"
+                placeholder="VD: 60"
+                value={thoiGianXuLyUocTinh}
+                onChange={e => setThoiGianXuLyUocTinh(e.target.value)}
+                style={S.input}
+              />
+            </FieldGroup>
+
+            {/* Banner thông tin */}
+            <div style={S.infoBanner}>
+              ℹ️ Sau khi gửi, Nhân viên Điều hành sẽ tiếp nhận, đánh giá mức độ chính thức và quyết định phương án xử lý.
+              Bạn có thể theo dõi trạng thái trong tab <strong>Báo cáo của tôi</strong>.
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+              <button type="button" style={S.btnSecondary} onClick={handleReset}>
+                Xóa form
+              </button>
+              <button type="submit" style={S.btnDanger} disabled={submitting}>
+                {submitting ? '⏳ Đang gửi...' : '📢 Gửi Báo Cáo Sự Cố'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ════════════════ TAB: BÁO CÁO CỦA TÔI ════════════════ */}
+      {activeTab === 'bao-cao' && (
+        <div style={S.card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={S.cardTitle}>📋 Báo Cáo Sự Cố Của Tôi</div>
+            <button style={S.btnSecondary} onClick={loadBaoCaoCuaToi} disabled={loadingBaoCao}>
+              {loadingBaoCao ? '⏳' : '🔄'} Làm mới
+            </button>
+          </div>
+
+          {loadingBaoCao ? (
+            <div style={S.emptyState}>⏳ Đang tải...</div>
+          ) : baoCaoList.length === 0 ? (
+            <div style={S.emptyState}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
+              <p>Bạn chưa ghi nhận sự cố nào.</p>
+              <button style={S.btnPrimary} onClick={() => setActiveTab('form')}>
+                + Ghi nhận sự cố đầu tiên
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {baoCaoList.map(sc => {
+                const cfg = TRANG_THAI_CONFIG[sc.trangThaiXuLy] || { label: sc.trangThaiXuLy, color: '#6B7280', bg: '#F9FAFB', icon: '❓' };
+                const loai = LOAI_SU_CO_OPTIONS.find(o => o.value === sc.loaiSuCo);
+                return (
+                  <div key={sc.maSuCo} style={S.baoCaoItem}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#111827' }}>
+                          {loai?.label || sc.loaiSuCo} &nbsp;·&nbsp; {getRayLabel(sc.maRay)}
                         </div>
-                        <button
-                            onClick={() => setGhiNhanResult(null)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: '#6B7280' }}
-                        >×</button>
-                    </div>
-
-                    {/* Thông tin sự cố vừa tạo */}
-                    <div className="card" style={{ marginBottom: '16px' }}>
-                        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--gray-200)', fontWeight: 600, fontSize: '13px' }}>
-                            THÔNG TIN SỰ CỐ VỪA GHI NHẬN
+                        <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                          Mã: {sc.maSuCo} &nbsp;·&nbsp; {formatTime(sc.ngayTao)}
                         </div>
-                        <div style={{ padding: '16px 20px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                                {[
-                                    { label: 'MÃ SỰ CỐ', value: ghiNhanResult.suCo.maSuCo },
-                                    { label: 'ĐƯỜNG RAY', value: ghiNhanResult.suCo.maRay },
-                                    { label: 'LOẠI SỰ CỐ', value: ghiNhanResult.suCo.loaiSuCo },
-                                    { label: 'MỨC ĐỘ', value: ghiNhanResult.suCo.mucDo },
-                                ].map(({ label, value }) => (
-                                    <div key={label}>
-                                        <div style={{ fontSize: '10px', color: 'var(--gray-500)', fontWeight: 600, marginBottom: '4px' }}>{label}</div>
-                                        <div style={{ fontWeight: 700, fontSize: '14px' }}>{value || '—'}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        {sc.moTa && (
+                          <div style={{ fontSize: 13, color: '#374151', marginTop: 6, whiteSpace: 'pre-wrap' }}>
+                            {sc.moTa.length > 120 ? sc.moTa.slice(0, 120) + '...' : sc.moTa}
+                          </div>
+                        )}
+                      </div>
+                      <span style={{ ...S.badge, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.color}33` }}>
+                        {cfg.icon} {cfg.label}
+                      </span>
                     </div>
-
-                    {/* Lịch trình bị ảnh hưởng */}
-                    <div className="card">
-                        <div style={{
-                            padding: '14px 20px', borderBottom: '1px solid var(--gray-200)',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                        }}>
-                            <div>
-                                <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--gray-700)' }}>
-                                    LỊCH TRÌNH BỊ ẢNH HƯỞNG ({ghiNhanResult.lichTrinhBiAnhHuong.length})
-                                </div>
-                                <div style={{ fontSize: '12px', color: 'var(--gray-500)', marginTop: '2px' }}>
-                                    Nhân viên Điều hành sẽ xử lý phương án — hủy chuyến hoặc đổi ray
-                                </div>
-                            </div>
-                            {/* Nút chuyển cho điều hành xử lý */}
-                            <button
-                                onClick={handleChuyenDieuHanh}
-                                style={{
-                                    padding: '8px 18px', borderRadius: '8px', border: 'none',
-                                    background: 'var(--navy-600)', color: 'white',
-                                    fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', gap: '6px'
-                                }}
-                            >
-                                🔧 Chuyển Điều hành xử lý →
-                            </button>
-                        </div>
-
-                        <div style={{ padding: '20px' }}>
-                            {loadingResult ? (
-                                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--gray-500)' }}>⏳ Đang tải...</div>
-                            ) : ghiNhanResult.lichTrinhBiAnhHuong.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '32px', color: 'var(--gray-500)' }}>
-                                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>📋</div>
-                                    <div style={{ fontSize: '13px' }}>
-                                        Không có lịch trình nào bị ảnh hưởng trực tiếp.<br />
-                                        Nhân viên Điều hành sẽ theo dõi và xử lý nếu cần.
-                                    </div>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    {ghiNhanResult.lichTrinhBiAnhHuong.map(lt => {
-                                        const isHuyed = lt.phuongAnXuLy === 'HUY_CHUYEN';
-                                        return (
-                                            <div key={lt.maLichTrinh} style={{
-                                                border: isHuyed ? '1px solid #E5E7EB' : '1px solid #FCA5A5',
-                                                borderRadius: 'var(--radius-md)', padding: '14px 18px',
-                                                background: isHuyed ? '#F9FAFB' : 'white',
-                                                opacity: isHuyed ? 0.65 : 1
-                                            }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                                                    <div>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '5px' }}>
-                                                            <span style={{ fontWeight: 700, fontSize: '14px' }}>{lt.maLichTrinh}</span>
-                                                            <span style={{ fontSize: '12px', color: 'var(--gray-500)' }}>—</span>
-                                                            <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--navy-600)' }}>{lt.maChuyenTau}</span>
-                                                        </div>
-                                                        <div style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'flex', gap: '14px' }}>
-                                                            <span>🛤 Ray: <strong>{lt.maRay}</strong></span>
-                                                            <span>🕐 {formatTime(lt.gioDenDuKien)} → {formatTime(lt.gioDiDuKien)}</span>
-                                                        </div>
-                                                    </div>
-                                                    {isHuyed ? (
-                                                        <span style={{
-                                                            padding: '4px 12px', borderRadius: '20px', fontSize: '11px',
-                                                            fontWeight: 600, background: '#F3F4F6', color: '#6B7280', border: '1px solid #D1D5DB'
-                                                        }}>✖ Đã hủy</span>
-                                                    ) : (
-                                                        <span style={{
-                                                            padding: '4px 12px', borderRadius: '20px', fontSize: '11px',
-                                                            fontWeight: 600, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FCA5A5'
-                                                        }}>⚡ Cần xử lý</span>
-                                                    )}
-                                                </div>
-
-                                                {/* Action buttons — chỉ khi chưa xử lý, nhân viên nhà ga có thể hủy ngay */}
-                                                {!isHuyed && (
-                                                    <div style={{
-                                                        marginTop: '12px', paddingTop: '12px',
-                                                        borderTop: '1px dashed #FCA5A5',
-                                                        display: 'flex', gap: '10px', alignItems: 'center'
-                                                    }}>
-                                                        <span style={{ fontSize: '11px', color: 'var(--gray-500)' }}>Xử lý nhanh:</span>
-                                                        <button
-                                                            onClick={() => handleHuyLichTrinh(lt)}
-                                                            style={{
-                                                                padding: '5px 14px', borderRadius: '8px',
-                                                                border: '1.5px solid #DC2626', background: 'white',
-                                                                color: '#DC2626', fontSize: '12px', fontWeight: 600, cursor: 'pointer'
-                                                            }}
-                                                        >
-                                                            ❌ Hủy chuyến
-                                                        </button>
-                                                        <span style={{ color: 'var(--gray-300)', fontSize: '16px' }}>|</span>
-                                                        <span style={{ fontSize: '11px', color: 'var(--gray-500)' }}>
-                                                            hoặc chờ Điều hành đổi ray
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Ghi nhận sự cố mới */}
-                    <div style={{ textAlign: 'center', marginTop: '16px' }}>
-                        <button className="btn btn-secondary" onClick={() => setGhiNhanResult(null)}>
-                            + Ghi nhận sự cố mới
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* ══════════════════════════════════════════
-                FORM GHI NHẬN (ẩn khi đã có kết quả)
-            ══════════════════════════════════════════ */}
-            {!ghiNhanResult && (
-                <>
-                    {/* Info banner */}
-                    <div className="card" style={{ marginBottom: '20px', background: 'var(--navy-50)', border: '1px solid var(--navy-200)' }}>
-                        <div style={{ display: 'flex', gap: '12px', alignItems: 'start' }}>
-                            <div style={{ fontSize: '24px' }}>ℹ️</div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, color: 'var(--navy-700)', marginBottom: '4px' }}>
-                                    Quy trình tự động sau khi ghi nhận
-                                </div>
-                                <div style={{ fontSize: '13px', color: 'var(--navy-600)', lineHeight: '1.6' }}>
-                                    <strong>(1)</strong> Phong tỏa đường ray theo mức độ sự cố →{' '}
-                                    <strong>(2)</strong> Quét và gắn thẻ lịch trình bị ảnh hưởng →{' '}
-                                    <strong>(3)</strong> Nhân viên Điều hành xử lý: hủy chuyến hoặc đổi sang ray khác
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Form Card */}
-                    <div className="card">
-                        <form onSubmit={handleSubmit}>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label className="form-label">LỊCH TRÌNH (Tùy chọn)</label>
-                                    <select
-                                        className="form-control"
-                                        value={form.maLichTrinh}
-                                        onChange={e => setForm({ ...form, maLichTrinh: e.target.value })}
-                                    >
-                                        <option value="">-- Không liên quan đến lịch trình cụ thể --</option>
-                                        {lichTrinhs.map(lt => (
-                                            <option key={lt.maLichTrinh} value={lt.maLichTrinh}>
-                                                {lt.maLichTrinh} — {lt.maChuyenTau} (Ray {lt.maRay})
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <small style={{ color: 'var(--gray-500)', fontSize: '11px', marginTop: '4px', display: 'block' }}>
-                                        Chỉ chọn nếu sự cố liên quan trực tiếp đến một lịch trình cụ thể
-                                    </small>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">ĐƯỜNG RAY <span style={{ color: 'var(--red-500)' }}>*</span></label>
-                                    <select
-                                        className="form-control"
-                                        value={form.maRay}
-                                        onChange={e => setForm({ ...form, maRay: e.target.value })}
-                                        required
-                                    >
-                                        <option value="">-- Chọn đường ray --</option>
-                                        {duongRays.map(ray => (
-                                            <option key={ray.maRay} value={ray.maRay}>
-                                                {ray.maRay} — Ray {ray.soRay} ({ray.trangThai === 'SAN_SANG' ? '✅ Sẵn sàng' : '⚠️ ' + ray.trangThai})
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label className="form-label">LOẠI SỰ CỐ</label>
-                                    <select
-                                        className="form-control"
-                                        value={form.loaiSuCo}
-                                        onChange={e => setForm({ ...form, loaiSuCo: e.target.value })}
-                                    >
-                                        <option value="SU_CO_KY_THUAT">Sự cố kỹ thuật</option>
-                                        <option value="SU_CO_TAU">Sự cố tàu</option>
-                                        <option value="SU_CO_DUONG_RAY">Sự cố đường ray</option>
-                                        <option value="MAT_LIEN_LAC">Mất liên lạc</option>
-                                        <option value="KHAC">Khác</option>
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">MỨC ĐỘ</label>
-                                    <select
-                                        className="form-control"
-                                        value={form.mucDo}
-                                        onChange={e => setForm({ ...form, mucDo: e.target.value })}
-                                    >
-                                        <option value="THAP">🟢 Thấp (~30 phút)</option>
-                                        <option value="TRUNG_BINH">🟡 Trung bình (~60 phút)</option>
-                                        <option value="CAO">🟠 Cao (Phong tỏa cứng)</option>
-                                        <option value="KHAN_CAP">🔴 Khẩn cấp (Phong tỏa cứng)</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* Mức độ info */}
-                            <div style={{
-                                padding: '12px 16px', background: mucDoInfo.bg,
-                                border: `1px solid ${mucDoInfo.border}`, borderRadius: 'var(--radius)',
-                                marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px'
-                            }}>
-                                <span style={{ fontSize: '18px' }}>{mucDoInfo.icon}</span>
-                                <div style={{ fontSize: '13px', color: 'var(--gray-700)' }}>
-                                    <strong>Mức độ {mucDoInfo.label}:</strong> Thời gian xử lý ước tính {mucDoInfo.time}
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label className="form-label">MÔ TẢ CHI TIẾT <span style={{ color: 'var(--red-500)' }}>*</span></label>
-                                <textarea
-                                    className="form-control"
-                                    value={form.moTa}
-                                    onChange={e => setForm({ ...form, moTa: e.target.value })}
-                                    rows="4"
-                                    placeholder="Mô tả chi tiết sự cố, vị trí, tình trạng hiện tại..."
-                                    required
-                                    style={{ resize: 'vertical' }}
-                                />
-                            </div>
-
-                            {/* Checkbox phong tỏa cứng */}
-                            <div style={{
-                                padding: '14px 16px', background: '#FFFBEB',
-                                border: '1px solid #FCD34D', borderRadius: 'var(--radius)', marginBottom: '20px'
-                            }}>
-                                <label style={{ display: 'flex', alignItems: 'start', gap: '12px', cursor: 'pointer' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={form.kichHoatPhongToa}
-                                        onChange={e => setForm({ ...form, kichHoatPhongToa: e.target.checked })}
-                                        style={{ marginTop: '2px' }}
-                                    />
-                                    <div>
-                                        <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--gray-800)' }}>
-                                            ⚠️ Kích hoạt phong tỏa cứng ngay lập tức
-                                        </div>
-                                        <div style={{ fontSize: '12px', color: 'var(--gray-600)', marginTop: '4px' }}>
-                                            Bỏ qua kết quả tự động và phong tỏa cứng đường ray ngay lập tức (dùng khi tình huống khẩn cấp)
-                                        </div>
-                                    </div>
-                                </label>
-                            </div>
-
-                            {/* Form Actions */}
-                            <div className="modal-footer" style={{ padding: '16px 0 0', borderTop: '1px solid var(--gray-200)' }}>
-                                <button type="button" className="btn btn-secondary" onClick={resetForm} disabled={loading}>
-                                    🔄 Làm mới
-                                </button>
-                                <button type="submit" className="btn btn-primary" disabled={loading}>
-                                    {loading ? '⏳ Đang xử lý...' : '📝 Ghi nhận sự cố'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </>
-            )}
-        </>
-    );
+                    {sc.trangThaiXuLy === 'DANG_XU_LY' && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: '#3B82F6' }}>
+                        🔧 Điều hành đang xử lý sự cố này.
+                      </div>
+                    )}
+                    {sc.trangThaiXuLy === 'DA_XU_LY' && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: '#10B981' }}>
+                        ✅ Sự cố đã được xử lý xong lúc {formatTime(sc.ngayXuLy)}.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
+
+// ── Helper Components ────────────────────────────────────────
+function FieldGroup({ label, required, hint, error, children }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <label style={S.label}>
+        {label} {required && <span style={{ color: '#EF4444' }}>*</span>}
+        {hint && <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 400, marginLeft: 8 }}>({hint})</span>}
+      </label>
+      {children}
+      {error && <div style={S.errorMsg}>⚠️ {error}</div>}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #F3F4F6' }}>
+      <span style={{ color: '#6B7280', fontSize: 13 }}>{label}</span>
+      <span style={{ fontWeight: 600, fontSize: 13 }}>{value}</span>
+    </div>
+  );
+}
+
+// ── Styles ───────────────────────────────────────────────────
+const S = {
+  page: {
+    padding: '24px',
+    maxWidth: 800,
+    margin: '0 auto',
+    fontFamily: '"Inter", "Segoe UI", sans-serif',
+  },
+  header: {
+    marginBottom: 24,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: 800,
+    color: '#111827',
+    margin: 0,
+  },
+  headerSub: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  tabs: {
+    display: 'flex',
+    gap: 4,
+    marginBottom: 20,
+    borderBottom: '2px solid #E5E7EB',
+  },
+  tab: {
+    padding: '10px 20px',
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    fontSize: 14,
+    fontWeight: 500,
+    color: '#6B7280',
+    borderBottom: '2px solid transparent',
+    marginBottom: -2,
+    transition: 'all 0.15s',
+  },
+  tabActive: {
+    color: '#DC2626',
+    borderBottomColor: '#DC2626',
+    fontWeight: 700,
+  },
+  card: {
+    background: '#fff',
+    borderRadius: 12,
+    border: '1px solid #E5E7EB',
+    padding: '28px 32px',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: 700,
+    color: '#111827',
+    marginBottom: 4,
+  },
+  label: {
+    display: 'block',
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    color: '#374151',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  input: {
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: '1px solid #D1D5DB',
+    fontSize: 14,
+    color: '#111827',
+    outline: 'none',
+    boxSizing: 'border-box',
+    transition: 'border-color 0.15s',
+  },
+  inputError: {
+    borderColor: '#EF4444',
+  },
+  errorMsg: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: 4,
+  },
+  radioGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+    gap: 10,
+  },
+  radioCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    padding: '10px 14px',
+    borderRadius: 8,
+    border: '2px solid #E5E7EB',
+    cursor: 'pointer',
+    fontSize: 13,
+    transition: 'all 0.15s',
+    userSelect: 'none',
+  },
+  radioCardActive: {
+    borderColor: '#DC2626',
+    background: '#FEF2F2',
+  },
+  mucDoBtn: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    padding: '10px 16px',
+    borderRadius: 8,
+    border: '2px solid',
+    cursor: 'pointer',
+    fontSize: 13,
+    flex: 1,
+    minWidth: 140,
+    transition: 'all 0.15s',
+    gap: 2,
+  },
+  infoBanner: {
+    background: '#EFF6FF',
+    border: '1px solid #BFDBFE',
+    borderRadius: 8,
+    padding: '12px 16px',
+    fontSize: 13,
+    color: '#1E40AF',
+    marginTop: 8,
+  },
+  infoBox: {
+    background: '#F9FAFB',
+    borderRadius: 8,
+    padding: '12px 16px',
+    textAlign: 'left',
+  },
+  btnPrimary: {
+    padding: '10px 20px',
+    background: '#DC2626',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  btnDanger: {
+    padding: '10px 24px',
+    background: '#DC2626',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  btnSecondary: {
+    padding: '10px 20px',
+    background: '#fff',
+    color: '#374151',
+    border: '1px solid #D1D5DB',
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: 'pointer',
+  },
+  badge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '4px 10px',
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
+  baoCaoItem: {
+    padding: '14px 16px',
+    borderRadius: 10,
+    border: '1px solid #E5E7EB',
+    background: '#FAFAFA',
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '48px 24px',
+    color: '#9CA3AF',
+    fontSize: 14,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 12,
+  },
+};

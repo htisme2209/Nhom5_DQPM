@@ -13,13 +13,26 @@ export default function GanttTimeline({
     selectedRay,
     onSelectRay,
     editItem,
-    newSchedulePreview
+    newSchedulePreview,
+    targetDate   // "YYYY-MM-DD" — để tính overlay quá khứ
 }) {
     const ganttScrollRef = useRef(null);
     const isDragging = useRef(false);
     const dragStartX = useRef(0);
     const scrollStartX = useRef(0);
     const timeSlots = generateTimeSlots();
+
+    // ── Past-time overlay (ơ mờ vùng đã qua) ─────────────────────
+    const getPastOverlayWidth = () => {
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        if (!targetDate || targetDate > todayStr) return 0;         // Ngày tương lai — không có overlay
+        if (targetDate < todayStr) return TOTAL_WIDTH;               // Ngày đã qua — phủ toàn bộ
+        // Hôm nay: phủ từ 0h đến giờ hiện tại
+        const nowH = now.getHours() + now.getMinutes() / 60;
+        return nowH * HOUR_WIDTH;
+    };
+    const pastOverlayWidth = getPastOverlayWidth();
 
     const onGanttMouseDown = useCallback((e) => {
         if (e.button !== 0) return;
@@ -186,6 +199,17 @@ export default function GanttTimeline({
                                         }}
                                     />
                                 ))}
+
+                                {/* Past-time overlay */}
+                                {pastOverlayWidth > 0 && (
+                                    <div style={{
+                                        position: 'absolute', left: 0, top: 0, bottom: 0,
+                                        width: `${pastOverlayWidth}px`,
+                                        background: 'rgba(148,163,184,0.13)',
+                                        borderRight: pastOverlayWidth < TOTAL_WIDTH ? '2px solid rgba(100,116,139,0.35)' : 'none',
+                                        zIndex: 4, pointerEvents: 'none'
+                                    }} />
+                                )}
 
                                 {/* Current time indicator */}
                                 {(() => {

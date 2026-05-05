@@ -1,6 +1,7 @@
 package com.danang.railway.service;
 
 import com.danang.railway.dto.request.KeHoachDacBietRequest;
+import com.danang.railway.dto.request.PheDuyetKeHoachRequest;
 import com.danang.railway.dto.response.KeHoachDacBietResponse;
 import com.danang.railway.entity.KeHoachDacBiet;
 import com.danang.railway.mapper.KeHoachDacBietMapper;
@@ -50,5 +51,21 @@ public class KeHoachDacBietService {
     public KeHoachDacBietResponse getKeHoachDacBietById(String id){
         return keHoachDacBietMapper.toKeHoachDacBietResponse(keHoachDacBietRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy kế hoạch đặc biệt")));
+    }
+
+    public KeHoachDacBietResponse pheDuyetKeHoach(String id, PheDuyetKeHoachRequest request) {
+        KeHoachDacBiet kh = keHoachDacBietRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy kế hoạch đặc biệt"));
+        
+        kh.setTrangThai(request.getTrangThai());
+        kh.setMaNguoiDuyet(request.getMaNguoiDuyet() != null ? request.getMaNguoiDuyet() : 
+            SecurityContextHolder.getContext().getAuthentication().getName());
+        kh.setNgayDuyet(java.time.LocalDateTime.now());
+        kh.setYKienDuyet(request.getYKienDuyet());
+        
+        keHoachDacBietRepository.save(kh);
+        
+        // TODO: Auto-schedule if needed when "DA_PHE_DUYET". Currently we just update status.
+        return keHoachDacBietMapper.toKeHoachDacBietResponse(kh);
     }
 }

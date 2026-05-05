@@ -1,7 +1,9 @@
 package com.danang.railway.service;
 
 import com.danang.railway.entity.LichTrinh;
+import com.danang.railway.exception.BusinessRuleException;
 import com.danang.railway.repository.LichTrinhRepository;
+import com.danang.railway.repository.QuyTacNghiepVuRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,10 +23,19 @@ import java.util.List;
 public class LichTrinhService {
 
     private final LichTrinhRepository lichTrinhRepository;
-    
-    // Các hằng số validation
-    private static final int THOI_GIAN_TAO_TRUOC_TOI_THIEU_GIO = 24; // 24 giờ
-    private static final int KHOANG_CACH_GIUA_CAC_TAU_PHUT = 10; // 10 phút
+    private final QuyTacNghiepVuRepository quyTacRepository;
+
+    private int getRuleValue(String maQuyTac, int defaultValue) {
+        return quyTacRepository.findById(maQuyTac)
+                .map(qt -> {
+                    try {
+                        return Integer.parseInt(qt.getGiaTri());
+                    } catch (Exception e) {
+                        return defaultValue;
+                    }
+                })
+                .orElse(defaultValue);
+    }
 
     /**
      * Tạo lịch trình mới với đầy đủ validation
@@ -120,9 +131,11 @@ public class LichTrinhService {
     }
 
     /**
-     * VALIDATION 2: Phải tạo trước ít nhất 24 giờ
+     * VALIDATION 2: Phải tạo trước ít nhất một khoảng thời gian quy định
      */
     private void kiemTraTaoTruoc24Gio(LichTrinh lichTrinh, LocalDateTime now) {
+        int thoiGianTaoTruocGiao = 24; // Fallback mặc định
+        
         LocalDateTime gioChaySomNhat = lichTrinh.getGioDenDuKien();
         if (lichTrinh.getGioDiDuKien() != null && 
             (gioChaySomNhat == null || lichTrinh.getGioDiDuKien().isBefore(gioChaySomNhat))) {
@@ -135,65 +148,106 @@ public class LichTrinhService {
         
         long gioConLai = ChronoUnit.HOURS.between(now, gioChaySomNhat);
         
-        if (gioConLai < THOI_GIAN_TAO_TRUOC_TOI_THIEU_GIO) {
-            throw new RuntimeException(String.format(
+        if (gioConLai < thoiGianTaoTruocGiao) {
+            throw new BusinessRuleException(String.format(
                     "Lịch trình thông thường phải được tạo trước ít nhất %d giờ. " +
                     "Hiện tại chỉ còn %d giờ đến giờ chạy (%s). " +
                     "Vui lòng chuyển sang luồng xử lý sự cố nếu cần tạo lịch trình gấp.",
-                    THOI_GIAN_TAO_TRUOC_TOI_THIEU_GIO,
+                    thoiGianTaoTruocGiao,
                     gioConLai,
                     gioChaySomNhat
-            ));
+            ), "ERR_LEAD_TIME_24H");
         }
     }
 
     /**
-     * VALIDATION 3: Đảm bảo khoảng cách 10 phút giữa các tàu xuất phát
-     * (Áp dụng cho tất cả các tàu, dù khác ray hay cùng ray)
+     * VALIDATION 3: Đảm bảo các quy tắc về khoảng cách và chiếm dụng ray
      */
     private void kiemTraKhoangCachGiuaCacTau(LichTrinh lichTrinhMoi) {
         kiemTraKhoangCachGiuaCacTau(lichTrinhMoi, null);
     }
     
     private void kiemTraKhoangCachGiuaCacTau(LichTrinh lichTrinhMoi, String maLichTrinhBoQua) {
-        if (lichTrinhMoi.getGioDiDuKien() == null) {
-            return; // Không cần kiểm tra nếu không có giờ đi
-        }
+        // 1. Kiểm tra khoảng cách xuất phát TOÀN MẠNG (QT-10)
+        kiemTraKhoangCachXuatPhatToanMang(lichTrinhMoi, maLichTrinhBoQua);
         
-        LocalDateTime gioXuatPhatMoi = lichTrinhMoi.getGioDiDuKien();
+        // 2. Kiểm tra xung đột chiếm dụng trên CÙNG MỘT RAY (QT-01, QT-02, QT-03)
+        kiemTraXungDotCungRay(lichTrinhMoi, maLichTrinhBoQua);
+    }
+
+    private void kiemTraKhoangCachXuatPhatToanMang(LichTrinh lichTrinhMoi, String maLichTrinhBoQua) {
+        if (lichTrinhMoi.getGioDiDuKien() == null) return;
+
+        int minGapToanMang = getRuleValue("QT-10", 10);
+        LocalDateTime gioDiMoi = lichTrinhMoi.getGioDiDuKien();
         
-        // Lấy tất cả lịch trình trong khoảng +/- 10 phút
-        LocalDateTime tuGio = gioXuatPhatMoi.minusMinutes(KHOANG_CACH_GIUA_CAC_TAU_PHUT);
-        LocalDateTime denGio = gioXuatPhatMoi.plusMinutes(KHOANG_CACH_GIUA_CAC_TAU_PHUT);
-        
-        List<LichTrinh> cacLichTrinhGanKe = lichTrinhRepository.findByGioDiDuKienBetween(tuGio, denGio);
-        
-        // Lọc bỏ chính lịch trình đang cập nhật (nếu có)
-        if (maLichTrinhBoQua != null) {
-            cacLichTrinhGanKe = cacLichTrinhGanKe.stream()
-                    .filter(lt -> !lt.getMaLichTrinh().equals(maLichTrinhBoQua))
-                    .toList();
-        }
-        
-        // Kiểm tra từng lịch trình
-        for (LichTrinh ltGanKe : cacLichTrinhGanKe) {
-            if (ltGanKe.getGioDiDuKien() == null) {
-                continue;
+        List<LichTrinh> ganKe = lichTrinhRepository.findByGioDiDuKienBetween(
+                gioDiMoi.minusMinutes(minGapToanMang), 
+                gioDiMoi.plusMinutes(minGapToanMang)
+        );
+
+        for (LichTrinh lt : ganKe) {
+            if (maLichTrinhBoQua != null && lt.getMaLichTrinh().equals(maLichTrinhBoQua)) continue;
+            if (lt.getGioDiDuKien() == null) continue;
+
+            long gap = Math.abs(ChronoUnit.MINUTES.between(gioDiMoi, lt.getGioDiDuKien()));
+            if (gap < minGapToanMang) {
+                throw new BusinessRuleException(String.format(
+                        "Khoảng cách xuất phát giữa 2 tàu bất kỳ phải ít nhất %d phút (Quy tắc QT-10). " +
+                        "Tàu %s xuất phát lúc %s (cách %d phút).",
+                        minGapToanMang, lt.getMaChuyenTau(), lt.getGioDiDuKien().toLocalTime(), gap
+                ), "ERR_DEPARTURE_GAP");
             }
+        }
+    }
+
+    private void kiemTraXungDotCungRay(LichTrinh lichTrinhMoi, String maLichTrinhBoQua) {
+        if (lichTrinhMoi.getMaRay() == null) return;
+
+        List<LichTrinh> cungRay = lichTrinhRepository.findByMaRay(lichTrinhMoi.getMaRay());
+        TrackWindow wMoi = calculateTrackWindow(lichTrinhMoi);
+        if (wMoi == null) return;
+
+        for (LichTrinh lt : cungRay) {
+            if (maLichTrinhBoQua != null && lt.getMaLichTrinh().equals(maLichTrinhBoQua)) continue;
             
-            long phutChenh = Math.abs(ChronoUnit.MINUTES.between(gioXuatPhatMoi, ltGanKe.getGioDiDuKien()));
-            
-            if (phutChenh < KHOANG_CACH_GIUA_CAC_TAU_PHUT) {
-                throw new RuntimeException(String.format(
-                        "Khoảng cách giữa các tàu xuất phát phải ít nhất %d phút. " +
-                        "Tàu %s đã có lịch xuất phát lúc %s (cách %d phút). " +
-                        "Vui lòng chọn thời gian khác.",
-                        KHOANG_CACH_GIUA_CAC_TAU_PHUT,
-                        ltGanKe.getMaChuyenTau(),
-                        ltGanKe.getGioDiDuKien(),
-                        phutChenh
-                ));
+            TrackWindow wCu = calculateTrackWindow(lt);
+            if (wCu == null) continue;
+
+            if (wMoi.overlaps(wCu)) {
+                throw new BusinessRuleException(String.format(
+                        "Xung đột chiếm dụng ray %s: Tàu %s đã chiếm dụng ray này từ %s đến %s (bao gồm thời gian đệm).",
+                        lichTrinhMoi.getMaRay(), lt.getMaChuyenTau(), 
+                        wCu.start.toLocalTime(), wCu.end.toLocalTime()
+                ), "ERR_TRACK_CONFLICT");
             }
+        }
+    }
+
+    private TrackWindow calculateTrackWindow(LichTrinh lt) {
+        int bufferMin = getRuleValue("QT-01", 15);
+        int boardingMin = getRuleValue("QT-02", 30);
+        int dwellMin = getRuleValue("QT-03", 20);
+
+        // Giống logic Frontend/Optimizer
+        if (lt.getGioDiDuKien() != null && lt.getGioDenDuKien() == null) { // XUAT_PHAT
+            return new TrackWindow(lt.getGioDiDuKien().minusMinutes(boardingMin), lt.getGioDiDuKien().plusMinutes(bufferMin));
+        } else if (lt.getGioDenDuKien() != null && lt.getGioDiDuKien() == null) { // DIEM_CUOI
+            return new TrackWindow(lt.getGioDenDuKien().minusMinutes(1), lt.getGioDenDuKien().plusMinutes(dwellMin + bufferMin));
+        } else if (lt.getGioDenDuKien() != null && lt.getGioDiDuKien() != null) { // TRUNG_GIAN
+            return new TrackWindow(lt.getGioDenDuKien().minusMinutes(1), lt.getGioDiDuKien().plusMinutes(bufferMin));
+        }
+        return null;
+    }
+
+    private static class TrackWindow {
+        LocalDateTime start;
+        LocalDateTime end;
+
+        TrackWindow(LocalDateTime s, LocalDateTime e) { this.start = s; this.end = e; }
+        boolean overlaps(TrackWindow other) {
+            return !(this.end.isBefore(other.start) || this.end.isEqual(other.start) || 
+                     other.end.isBefore(this.start) || other.end.isEqual(this.start));
         }
     }
 }

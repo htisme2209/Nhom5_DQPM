@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { suCoAPI, duongRayAPI } from '../../services/api';
 
 // ─── Trạng thái config ─────────────────────────────────────────────────────
 const TRANG_THAI_CONFIG = {
-    CHUA_XU_LY: {
-        label: 'Chưa xử lý', icon: '🔴',
-        bg: '#FEE2E2', color: '#DC2626', border: '#FCA5A5', badgeBg: '#FEF2F2', dot: '#EF4444'
+    CHO_TIEP_NHAN: {
+        label: 'Chờ tiếp nhận', icon: '⏳',
+        bg: '#FEF3C7', color: '#92400E', border: '#FCD34D', badgeBg: '#FFFBEB', dot: '#F59E0B'
     },
     DANG_XU_LY: {
         label: 'Đang xử lý', icon: '🟡',
@@ -19,7 +19,7 @@ const TRANG_THAI_CONFIG = {
 };
 
 function TrangThaiBadge({ trangThai, size = 'sm' }) {
-    const cfg = TRANG_THAI_CONFIG[trangThai] || TRANG_THAI_CONFIG.CHUA_XU_LY;
+    const cfg = TRANG_THAI_CONFIG[trangThai] || TRANG_THAI_CONFIG.CHO_TIEP_NHAN;
     return (
         <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -40,24 +40,53 @@ function TrangThaiBadge({ trangThai, size = 'sm' }) {
 
 export default function XuLySuCoPage() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [suCos, setSuCos] = useState([]);
     const [selectedSuCo, setSelectedSuCo] = useState(null);
     const [lichTrinhBiAnhHuong, setLichTrinhBiAnhHuong] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [actionLoading, setActionLoading] = useState({}); // per-item loading
+    const [actionLoading, setActionLoading] = useState({});
     const [toast, setToast] = useState(null);
-    const [filterTab, setFilterTab] = useState('CHUA_XU_LY');
-    const [confirmHuy, setConfirmHuy] = useState(null); // lịch trình đang confirm hủy
+    const [filterTab, setFilterTab] = useState('CHO_TIEP_NHAN');
+    const [confirmHuy, setConfirmHuy] = useState(null);
 
-    useEffect(() => { loadSuCos(); }, []);
+    // Modal Tiếp nhận & Đánh giá
+    const [showTiepNhanModal, setShowTiepNhanModal] = useState(false);
+    const [tiepNhanForm, setTiepNhanForm] = useState({
+        mucDo: 'TRUNG_BINH',
+        coPhongToaRay: true,
+        loaiPhongToa: 'PHONG_TOA_TAM',
+        thoiGianXuLyUocTinh: '',
+    });
+    const [tiepNhanLoading, setTiepNhanLoading] = useState(false);
 
-    const loadSuCos = async () => {
+    const loadSuCos = useCallback(async () => {
         try {
             const res = await suCoAPI.getAll();
             const data = Array.isArray(res.data) ? res.data : (res.data?.data || []);
             setSuCos(data);
-        } catch (err) { console.error(err); setSuCos([]); }
-    };
+            return data;
+        } catch (err) { console.error(err); setSuCos([]); return []; }
+    }, []);
+
+    // Load ban đầu + polling 30s
+    useEffect(() => {
+        loadSuCos();
+        const interval = setInterval(loadSuCos, 30000);
+        return () => clearInterval(interval);
+    }, [loadSuCos]);
+
+    // Tự động chọn sự cố từ URL param (NVNH chuyển sang sau khi gửi báo cáo)
+    useEffect(() => {
+        const suCoId = searchParams.get('suCoId');
+        if (suCoId && suCos.length > 0) {
+            const found = suCos.find(s => s.maSuCo === suCoId);
+            if (found && (!selectedSuCo || selectedSuCo.maSuCo !== suCoId)) {
+                handleSelectSuCo(found);
+                setFilterTab(found.trangThaiXuLy || 'CHO_TIEP_NHAN');
+            }
+        }
+    }, [suCos, searchParams]);
 
     const loadLichTrinhBiAnhHuong = async (maSuCo) => {
         try {
@@ -81,19 +110,43 @@ export default function XuLySuCoPage() {
         loadLichTrinhBiAnhHuong(suCo.maSuCo);
     };
 
-    // ── Bắt đầu xử lý: CHUA → DANG ─────────────────────────────────────────
-    const handleBatDauXuLy = async (suCo) => {
-        if (!confirm(`Bắt đầu xử lý sự cố ${suCo.maSuCo}?`)) return;
-        setLoading(true);
+
+    // ── Tiếp nhận & Đánh giá: CHO_TIEP_NHAN → DANG_XU_LY ───────────────────
+    const handleMoModalTiepNhan = () => {
+        if (!selectedSuCo) return;
+        setTiepNhanForm({
+            mucDo: selectedSuCo.mucDo || 'TRUNG_BINH',
+            coPhongToaRay: !!selectedSuCo.maRay,
+            loaiPhongToa: 'PHONG_TOA_TAM',
+            thoiGianXuLyUocTinh: selectedSuCo.thoiGianXuLyUocTinh || '',
+        });
+        setShowTiepNhanModal(true);
+    };
+
+    const handleXacNhanTiepNhan = async () => {
+        if (!selectedSuCo) return;
+
+        if (tiepNhanForm.coPhongToaRay && tiepNhanForm.loaiPhongToa === 'PHONG_TOA_TAM') {
+            if (!tiepNhanForm.thoiGianXuLyUocTinh || parseInt(tiepNhanForm.thoiGianXuLyUocTinh) <= 0) {
+                showToast('Vui lòng điền Thời gian xử lý ước tính hợp lệ!', 'error');
+                return;
+            }
+        }
+
+        setTiepNhanLoading(true);
         try {
-            await suCoAPI.capNhatTrangThai(suCo.maSuCo, 'DANG_XU_LY');
-            showToast('Đã chuyển sang trạng thái Đang xử lý!');
-            await loadSuCos();
-            setSelectedSuCo(prev => prev ? { ...prev, trangThaiXuLy: 'DANG_XU_LY' } : prev);
+            await suCoAPI.tiepNhan(selectedSuCo.maSuCo, tiepNhanForm);
+            showToast('✅ Tiếp nhận sự cố thành công! Đường ray đã phong tỏa, lịch trình bị ảnh hưởng đã được quét.');
+            setShowTiepNhanModal(false);
+            const newList = await loadSuCos();
+            const refreshed = newList.find(s => s.maSuCo === selectedSuCo.maSuCo);
+            if (refreshed) { setSelectedSuCo(refreshed); loadLichTrinhBiAnhHuong(refreshed.maSuCo); }
+            setFilterTab('DANG_XU_LY');
         } catch (err) {
             showToast(err.response?.data?.message || err.message, 'error');
-        } finally { setLoading(false); }
+        } finally { setTiepNhanLoading(false); }
     };
+
 
     // ── Hủy chuyến một lịch trình ───────────────────────────────────────────
     const handleHuyMotChuyen = async (lt) => {
@@ -111,6 +164,30 @@ export default function XuLySuCoPage() {
         } finally {
             setActionLoading(prev => ({ ...prev, [lt.maLichTrinh]: false }));
             setConfirmHuy(null);
+        }
+    };
+
+    // ── Điều chỉnh giờ lịch trình (không cần đổi ray) ─────────────────────
+    const handleDieuChinhGio = async (lt, gioDenMoi, gioDiMoi) => {
+        setActionLoading(prev => ({ ...prev, [lt.maLichTrinh]: true }));
+        try {
+            // Tính số phút trễ dựa trên giờ gốc và giờ mới
+            const ngayChay = lt.gioDenDuKien
+                ? lt.gioDenDuKien.substring(0, 10)
+                : lt.gioDiDuKien?.substring(0, 10);
+            const payload = {
+                maLichTrinh: lt.maLichTrinh,
+                phuongAn: 'DIEU_CHINH_GIO',
+                gioDenDuKienMoi: gioDenMoi && ngayChay ? `${ngayChay}T${gioDenMoi}:00` : null,
+                gioDiDuKienMoi: gioDiMoi && ngayChay ? `${ngayChay}T${gioDiMoi}:00` : null,
+            };
+            await suCoAPI.dieuChinhGio(payload);
+            showToast(`✅ Đã cập nhật giờ cho ${lt.maLichTrinh}`);
+            loadLichTrinhBiAnhHuong(selectedSuCo.maSuCo);
+        } catch (err) {
+            showToast(err.response?.data?.message || 'Không thể cập nhật giờ', 'error');
+        } finally {
+            setActionLoading(prev => ({ ...prev, [lt.maLichTrinh]: false }));
         }
     };
 
@@ -137,14 +214,16 @@ export default function XuLySuCoPage() {
     // ── Hoàn thành xử lý — gọi khi DANG_XU_LY và không còn lịch trình ────────
     const handleHoanThanhXuLy = async () => {
         if (!selectedSuCo) return;
-        if (!confirm(
-            `Xác nhận hoàn thành xử lý sự cố ${selectedSuCo.maSuCo}?\n` +
-            `Đường ray ${selectedSuCo.maRay} sẽ được giải phóng và chuyển về SẴN SÀNG.`
-        )) return;
+        const rayMsg = selectedSuCo.maRay
+            ? `\nĐường ray ${selectedSuCo.maRay} sẽ được giải phóng về SẴN SÀNG.`
+            : '';
+        if (!confirm(`Xác nhận hoàn thành xử lý sự cố ${selectedSuCo.maSuCo}?${rayMsg}`)) return;
         setLoading(true);
         try {
-            await suCoAPI.giaiPhongRay({ maRay: selectedSuCo.maRay, maSuCo: selectedSuCo.maSuCo });
-            showToast('✅ Hoàn thành xử lý! Đường ray đã được giải phóng.');
+            await suCoAPI.giaiPhongRay({ maRay: selectedSuCo.maRay || null, maSuCo: selectedSuCo.maSuCo });
+            showToast(selectedSuCo.maRay
+                ? '✅ Hoàn thành xử lý! Đường ray đã được giải phóng.'
+                : '✅ Hoàn thành xử lý sự cố!');
             await loadSuCos();
             setSelectedSuCo(null);
             setLichTrinhBiAnhHuong([]);
@@ -153,14 +232,17 @@ export default function XuLySuCoPage() {
         } finally { setLoading(false); }
     };
 
-    // ── Giải phóng ray ───────────────────────────────────────────────────────
+    // ── Giải phóng ray (nút header) ─────────────────────────────────────────
     const handleGiaiPhongRay = async () => {
         if (!selectedSuCo) return;
-        if (!confirm('Bạn có chắc muốn giải phóng đường ray? Tất cả lịch trình phải đã được xử lý.')) return;
+        const rayMsg = selectedSuCo.maRay
+            ? `Đường ray ${selectedSuCo.maRay} sẽ được giải phóng.`
+            : 'Sự cố không có đường ray, chỉ đánh dấu hoàn thành.';
+        if (!confirm(`Xác nhận hoàn thành xử lý?\n${rayMsg}\nTất cả lịch trình phải đã được xử lý.`)) return;
         setLoading(true);
         try {
-            await suCoAPI.giaiPhongRay({ maRay: selectedSuCo.maRay, maSuCo: selectedSuCo.maSuCo });
-            showToast('Giải phóng ray thành công!');
+            await suCoAPI.giaiPhongRay({ maRay: selectedSuCo.maRay || null, maSuCo: selectedSuCo.maSuCo });
+            showToast(selectedSuCo.maRay ? '✅ Giải phóng ray thành công!' : '✅ Đánh dấu hoàn thành thành công!');
             loadSuCos();
             setSelectedSuCo(null);
             setLichTrinhBiAnhHuong([]);
@@ -171,7 +253,7 @@ export default function XuLySuCoPage() {
 
 
     const countByStatus = {
-        CHUA_XU_LY: suCos.filter(s => s.trangThaiXuLy === 'CHUA_XU_LY').length,
+        CHO_TIEP_NHAN: suCos.filter(s => s.trangThaiXuLy === 'CHO_TIEP_NHAN').length,
         DANG_XU_LY: suCos.filter(s => s.trangThaiXuLy === 'DANG_XU_LY').length,
         DA_XU_LY: suCos.filter(s => s.trangThaiXuLy === 'DA_XU_LY').length,
     };
@@ -185,7 +267,7 @@ export default function XuLySuCoPage() {
 
     const tabs = [
         { key: 'ALL', label: 'Tất cả', count: suCos.length, color: '#4B5563' },
-        { key: 'CHUA_XU_LY', label: 'Chưa xử lý', count: countByStatus.CHUA_XU_LY, color: '#DC2626' },
+        { key: 'CHO_TIEP_NHAN', label: 'Chờ tiếp nhận', count: countByStatus.CHO_TIEP_NHAN, color: '#92400E' },
         { key: 'DANG_XU_LY', label: 'Đang xử lý', count: countByStatus.DANG_XU_LY, color: '#D97706' },
         { key: 'DA_XU_LY', label: 'Đã xử lý', count: countByStatus.DA_XU_LY, color: '#16A34A' },
     ];
@@ -228,6 +310,119 @@ export default function XuLySuCoPage() {
                             >
                                 {actionLoading[confirmHuy.maLichTrinh] ? '⏳ Đang xử lý...' : '❌ Xác nhận hủy'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Tiếp nhận & Đánh giá */}
+            {showTiepNhanModal && selectedSuCo && (
+                <div style={MODAL_OVERLAY} onClick={() => setShowTiepNhanModal(false)}>
+                    <div style={MODAL_BOX} onClick={e => e.stopPropagation()}>
+                        <div style={{ fontSize: 28, textAlign: 'center', marginBottom: 8 }}>📋</div>
+                        <h3 style={{ fontSize: 18, fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>
+                            Tiếp nhận &amp; Đánh giá Sự cố
+                        </h3>
+                        <p style={{ fontSize: 13, color: '#6B7280', textAlign: 'center', marginBottom: 12 }}>
+                            {selectedSuCo.maSuCo} &nbsp;·&nbsp; {selectedSuCo.loaiSuCo}
+                        </p>
+
+                        <div style={{ background: '#F9FAFB', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #E5E7EB' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '12px', color: '#6B7280' }}>Thời gian xảy ra:</span>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                                    {selectedSuCo.ngayXayRa ? new Date(selectedSuCo.ngayXayRa).toLocaleString('vi-VN') : '—'}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ fontSize: '12px', color: '#6B7280' }}>Thời gian ước tính xử lí (NVNG):</span>
+                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                                    {selectedSuCo.thoiGianXuLyUocTinh ? `${selectedSuCo.thoiGianXuLyUocTinh} phút` : 'Chưa nhập (Trống)'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#374151', display: 'block', marginBottom: 6 }}>
+                                Mức độ chính thức
+                            </label>
+                            <select
+                                value={tiepNhanForm.mucDo}
+                                onChange={e => setTiepNhanForm(p => ({ ...p, mucDo: e.target.value }))}
+                                style={MODAL_INPUT}
+                            >
+                                <option value="THAP">🟢 Thấp — Xử lý trong vài phút</option>
+                                <option value="TRUNG_BINH">🟡 Trung bình — Cần hỗ trợ</option>
+                                <option value="CAO">🔴 Cao — Ảnh hưởng nhiều lịch trình</option>
+                                <option value="KHAN_CAP">🚨 Khẩn cấp — Ưu tiên tối cao</option>
+                            </select>
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                            <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#374151', display: 'block', marginBottom: 6 }}>
+                                Phong tỏa đường ray?
+                            </label>
+                            <div style={{ display: 'flex', gap: 10 }}>
+                                {[
+                                    { v: true, lt: '🔒 Có phong tỏa', sub: 'Ray bị chặn, lịch trình được quét' },
+                                    { v: false, lt: '✅ Không phong tỏa', sub: 'Ray vẫn hoạt động, chỉ quản lý LT' },
+                                ].map(o => (
+                                    <button key={String(o.v)} type="button"
+                                        onClick={() => setTiepNhanForm(p => ({ ...p, coPhongToaRay: o.v, loaiPhongToa: o.v ? 'PHONG_TOA_TAM' : null }))}
+                                        style={{
+                                            flex: 1, padding: '10px 12px', borderRadius: 8, border: '2px solid',
+                                            borderColor: tiepNhanForm.coPhongToaRay === o.v ? '#DC2626' : '#E5E7EB',
+                                            background: tiepNhanForm.coPhongToaRay === o.v ? '#FEF2F2' : '#fff',
+                                            cursor: 'pointer', textAlign: 'left', fontSize: 13,
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 700 }}>{o.lt}</div>
+                                        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{o.sub}</div>
+                                    </button>
+                                ))}
+                            </div>
+                            {tiepNhanForm.coPhongToaRay && (
+                                <select
+                                    value={tiepNhanForm.loaiPhongToa}
+                                    onChange={e => setTiepNhanForm(p => ({ ...p, loaiPhongToa: e.target.value }))}
+                                    style={{ ...MODAL_INPUT, marginTop: 8 }}
+                                >
+                                    <option value="PHONG_TOA_TAM">Phong tỏa tạm — Tự động giải phóng khi xử lý xong</option>
+                                    <option value="PHONG_TOA_CUNG">Phong tỏa cứng — Cần Ban Quản lý duyệt mới giải phóng</option>
+                                </select>
+                            )}
+
+                            {tiepNhanForm.coPhongToaRay && tiepNhanForm.loaiPhongToa === 'PHONG_TOA_TAM' && (
+                                <div style={{ marginTop: 16 }}>
+                                    <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#374151', display: 'block', marginBottom: 6 }}>
+                                        Thời gian xử lý ước tính (Phút) <span style={{ color: '#DC2626' }}>*</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        required
+                                        placeholder="VD: 60"
+                                        value={tiepNhanForm.thoiGianXuLyUocTinh}
+                                        onChange={e => setTiepNhanForm(p => ({ ...p, thoiGianXuLyUocTinh: e.target.value }))}
+                                        style={MODAL_INPUT}
+                                    />
+                                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>
+                                        Hệ thống sẽ giữ phong tỏa ray trong khoảng thời gian này.
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+                            <button
+                                style={{ padding: '10px 18px', border: '1px solid #D1D5DB', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 }}
+                                onClick={() => setShowTiepNhanModal(false)}
+                            >Hủy</button>
+                            <button
+                                style={{ padding: '10px 20px', background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13, opacity: tiepNhanLoading ? 0.7 : 1 }}
+                                onClick={handleXacNhanTiepNhan}
+                                disabled={tiepNhanLoading}
+                            >{tiepNhanLoading ? '⏳ Đang xử lý...' : '✅ Xác nhận Tiếp nhận'}</button>
                         </div>
                     </div>
                 </div>
@@ -306,7 +501,7 @@ export default function XuLySuCoPage() {
                                 <div style={{ fontSize: '13px' }}>Không có sự cố nào</div>
                             </div>
                         ) : filteredSuCos.map(suCo => {
-                            const cfg = TRANG_THAI_CONFIG[suCo.trangThaiXuLy] || TRANG_THAI_CONFIG.CHUA_XU_LY;
+                            const cfg = TRANG_THAI_CONFIG[suCo.trangThaiXuLy] || TRANG_THAI_CONFIG.CHO_TIEP_NHAN;
                             const isSelected = selectedSuCo?.maSuCo === suCo.maSuCo;
                             return (
                                 <div key={suCo.maSuCo} onClick={() => handleSelectSuCo(suCo)}
@@ -376,15 +571,16 @@ export default function XuLySuCoPage() {
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             <TrangThaiBadge trangThai={selectedSuCo.trangThaiXuLy} size="lg" />
-                                            {selectedSuCo.trangThaiXuLy === 'CHUA_XU_LY' && (
-                                                <button onClick={() => handleBatDauXuLy(selectedSuCo)} disabled={loading}
+                                            {selectedSuCo.trangThaiXuLy === 'CHO_TIEP_NHAN' && (
+                                                <button onClick={handleMoModalTiepNhan} disabled={loading}
                                                     style={{
-                                                        padding: '6px 16px', borderRadius: '20px', border: 'none',
-                                                        background: '#D97706', color: 'white', fontSize: '12px', fontWeight: 600,
+                                                        padding: '8px 18px', borderRadius: '20px', border: 'none',
+                                                        background: '#DC2626', color: 'white', fontSize: '13px', fontWeight: 700,
                                                         cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1,
-                                                        display: 'flex', alignItems: 'center', gap: '5px'
+                                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                                        boxShadow: '0 2px 8px rgba(220,38,38,0.3)',
                                                     }}>
-                                                    🔧 Bắt đầu xử lý
+                                                    📋 Tiếp nhận &amp; Đánh giá
                                                 </button>
                                             )}
                                         </div>
@@ -481,6 +677,7 @@ export default function XuLySuCoPage() {
                                                     actionLoading={actionLoading}
                                                     onHuy={() => setConfirmHuy(lt)}
                                                     onDieuPhoi={() => handleDieuPhoiMotLichTrinh(lt)}
+                                                    onDieuChinhGio={handleDieuChinhGio}
                                                 />
                                             ))}
 
@@ -540,12 +737,19 @@ export default function XuLySuCoPage() {
     );
 }
 
-// ─── Card lịch trình bị ảnh hưởng với 2 option ────────────────────────────
-function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi }) {
-    const isHuyed = lichTrinh.phuongAnXuLy === 'HUY_CHUYEN' || lichTrinh.trangThai === 'HUY_CHUYEN';
-    const isDone = lichTrinh.phuongAnXuLy === 'DOI_RAY';
+// ─── Card lịch trình bị ảnh hưởng — 3 phương án xử lý ───────────────────────
+function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi, onDieuChinhGio }) {
+    const isHuyed = lichTrinh.phuongAnXuLy === 'HUY_CHUYEN' || lichTrinh.trangThai === 'HUY';
+    const isDoi = lichTrinh.phuongAnXuLy === 'DOI_RAY';
+    const isDieuChinh = lichTrinh.phuongAnXuLy === 'DIEU_CHINH_GIO';
+    const isDone = isDoi || isDieuChinh;
     const soPhutTre = lichTrinh.soPhutTre || 0;
     const isLoading = actionLoading[lichTrinh.maLichTrinh];
+
+    // State cho inline form điều chỉnh giờ
+    const [showGioForm, setShowGioForm] = useState(false);
+    const [gioDenMoi, setGioDenMoi] = useState('');
+    const [gioDiMoi, setGioDiMoi] = useState('');
 
     const formatDT = (dt) => {
         if (!dt) return '--:--';
@@ -553,17 +757,19 @@ function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi }) 
         return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     };
 
+    // Màu viền và nền theo trạng thái
+    const cardStyle = isHuyed
+        ? { border: '1px solid #E5E7EB', background: '#F9FAFB', opacity: 0.65 }
+        : isDieuChinh
+            ? { border: '1px solid #A7F3D0', background: '#ECFDF5' }
+            : isDoi
+                ? { border: '1px solid #86EFAC', background: '#F0FDF4' }
+                : { border: '1px solid #FCA5A5', background: 'white' };
+
     return (
-        <div style={{
-            border: isHuyed ? '1px solid #E5E7EB' : isDone ? '1px solid #86EFAC' : '1px solid #FCA5A5',
-            borderRadius: 'var(--radius-md)',
-            padding: '16px 20px',
-            background: isHuyed ? '#F9FAFB' : isDone ? '#F0FDF4' : 'white',
-            opacity: isHuyed ? 0.65 : 1,
-            transition: 'all 0.2s'
-        }}>
+        <div style={{ ...cardStyle, borderRadius: 'var(--radius-md)', padding: '16px 20px', transition: 'all 0.2s' }}>
+            {/* Header - thông tin tàu */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                {/* Thông tin lịch trình */}
                 <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                         <span style={{ fontWeight: 700, fontSize: '14px' }}>{lichTrinh.maLichTrinh}</span>
@@ -588,81 +794,208 @@ function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi }) 
                 </div>
 
                 {/* Status badge */}
-                <div style={{ marginLeft: '12px' }}>
+                <div style={{ marginLeft: '12px', flexShrink: 0 }}>
                     {isHuyed ? (
-                        <span style={{
-                            padding: '4px 12px', borderRadius: '20px', fontSize: '11px',
-                            fontWeight: 600, background: '#F3F4F6', color: '#6B7280',
-                            border: '1px solid #D1D5DB'
-                        }}>✖ Đã hủy</span>
-                    ) : isDone ? (
-                        <span style={{
-                            padding: '4px 12px', borderRadius: '20px', fontSize: '11px',
-                            fontWeight: 600, background: '#F0FDF4', color: '#16A34A',
-                            border: '1px solid #86EFAC'
-                        }}>✓ Đã đổi ray</span>
+                        <span style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: '#F3F4F6', color: '#6B7280', border: '1px solid #D1D5DB' }}>✖ Đã hủy chuyến</span>
+                    ) : isDieuChinh ? (
+                        <span style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }}>⏰ Đã điều chỉnh giờ</span>
+                    ) : isDoi ? (
+                        <span style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: '#F0FDF4', color: '#16A34A', border: '1px solid #86EFAC' }}>✓ Đã đổi ray</span>
                     ) : (
-                        <span style={{
-                            padding: '4px 12px', borderRadius: '20px', fontSize: '11px',
-                            fontWeight: 600, background: '#FEF2F2', color: '#DC2626',
-                            border: '1px solid #FCA5A5'
-                        }}>⚡ Cần xử lý</span>
+                        <span style={{ padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FCA5A5' }}>⚡ Cần xử lý</span>
                     )}
                 </div>
             </div>
 
             {/* Action buttons — chỉ hiển thị khi chưa xử lý */}
-            {!isHuyed && !isDone && (
+            {!isHuyed && !isDone && !showGioForm && (
                 <div style={{
                     marginTop: '14px', paddingTop: '14px',
                     borderTop: '1px dashed #FCA5A5',
-                    display: 'flex', gap: '10px', alignItems: 'center'
+                    display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'
                 }}>
-                    <span style={{ fontSize: '11px', color: 'var(--gray-500)', marginRight: '4px' }}>
-                        Chọn phương án:
-                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--gray-500)', marginRight: '2px' }}>Phương án:</span>
 
-                    {/* Nút Hủy chuyến */}
-                    <button
-                        onClick={onHuy}
-                        disabled={isLoading}
-                        style={{
-                            padding: '7px 16px', borderRadius: '8px',
-                            border: '1.5px solid #DC2626', background: 'white',
-                            color: '#DC2626', fontSize: '12px', fontWeight: 600,
-                            cursor: isLoading ? 'not-allowed' : 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            transition: 'all 0.15s'
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = '#FEE2E2'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'white'; }}
-                    >
-                        ❌ Hủy chuyến
-                    </button>
+                    {/* Hủy chuyến */}
+                    <button onClick={onHuy} disabled={isLoading} style={{
+                        padding: '6px 14px', borderRadius: '8px',
+                        border: '1.5px solid #DC2626', background: 'white',
+                        color: '#DC2626', fontSize: '12px', fontWeight: 600,
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s'
+                    }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#FEE2E2'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                    >❌ Hủy chuyến</button>
 
-                    {/* Divider */}
-                    <span style={{ color: 'var(--gray-300)', fontSize: '18px' }}>|</span>
+                    <span style={{ color: 'var(--gray-300)' }}>|</span>
 
-                    {/* Nút Điều phối ray */}
-                    <button
-                        onClick={onDieuPhoi}
-                        disabled={isLoading}
-                        style={{
-                            padding: '7px 16px', borderRadius: '8px',
-                            border: '1.5px solid var(--navy-500)',
-                            background: 'var(--navy-600)', color: 'white',
-                            fontSize: '12px', fontWeight: 600,
-                            cursor: isLoading ? 'not-allowed' : 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            transition: 'all 0.15s'
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--navy-700)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--navy-600)'; }}
-                    >
-                        🔄 Điều phối ray →
-                    </button>
+                    {/* Điều chỉnh giờ — phương án mới */}
+                    <button onClick={() => {
+                        setGioDenMoi(formatDT(lichTrinh.gioDenDuKien) === '--:--' ? '' : formatDT(lichTrinh.gioDenDuKien));
+                        setGioDiMoi(formatDT(lichTrinh.gioDiDuKien) === '--:--' ? '' : formatDT(lichTrinh.gioDiDuKien));
+                        setShowGioForm(true);
+                    }} disabled={isLoading} style={{
+                        padding: '6px 14px', borderRadius: '8px',
+                        border: '1.5px solid #059669', background: 'white',
+                        color: '#059669', fontSize: '12px', fontWeight: 600,
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s'
+                    }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#ECFDF5'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                    >⏰ Điều chỉnh giờ</button>
+
+                    <span style={{ color: 'var(--gray-300)' }}>|</span>
+
+                    {/* Điều phối đổi ray */}
+                    <button onClick={onDieuPhoi} disabled={isLoading} style={{
+                        padding: '6px 14px', borderRadius: '8px',
+                        border: '1.5px solid var(--navy-500)',
+                        background: 'var(--navy-600)', color: 'white',
+                        fontSize: '12px', fontWeight: 600,
+                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s'
+                    }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--navy-700)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'var(--navy-600)'}
+                    >🔄 Đổi ray →</button>
                 </div>
             )}
+
+            {/* Inline form điều chỉnh giờ — logic theo loại tàu + thực tế */}
+            {showGioForm && !isDone && !isHuyed && (() => {
+                // Xác định trường nào được phép chỉnh
+                const coDenDuKien = !!lichTrinh.gioDenDuKien;   // null nếu XUAT_PHAT
+                const coDiDuKien = !!lichTrinh.gioDiDuKien;    // null nếu DIEM_CUOI
+                const daDen = !!lichTrinh.gioDenThucTe;   // đã đến rồi → không chỉnh
+                const daDi = !!lichTrinh.gioDiThucTe;    // đã đi rồi → không chỉnh
+
+                const coTheChinhDen = coDenDuKien && !daDen;
+                const coTheChinhDi = coDiDuKien && !daDi;
+
+                // Hint giải thích tại sao trường bị vô hiệu
+                const hintDen = !coDenDuKien ? 'Tàu xuất phát — không có giờ đến'
+                    : daDen ? `Đã đến lúc ${formatDT(lichTrinh.gioDenThucTe)} — không thể thay đổi`
+                        : null;
+                const hintDi = !coDiDuKien ? 'Tàu điểm cuối — không có giờ đi'
+                    : daDi ? `Đã đi lúc ${formatDT(lichTrinh.gioDiThucTe)} — không thể thay đổi`
+                        : null;
+
+                const canSubmit = (coTheChinhDen && gioDenMoi) || (coTheChinhDi && gioDiMoi);
+
+                return (
+                    <div style={{
+                        marginTop: '12px', borderTop: '1px dashed #A7F3D0',
+                        background: '#F0FDF4', borderRadius: '8px', padding: '14px'
+                    }}>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#065F46', marginBottom: '10px' }}>
+                            ⏰ Cập nhật thời gian dự kiến
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                            {/* Giờ đến */}
+                            <div style={{ flex: 1, minWidth: '130px' }}>
+                                <label style={{
+                                    fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px',
+                                    color: coTheChinhDen ? '#374151' : '#9CA3AF'
+                                }}>
+                                    Giờ đến mới
+                                    {!coTheChinhDen && <span style={{ fontSize: '10px', fontWeight: 400 }}> (khoá)</span>}
+                                </label>
+                                {coTheChinhDen ? (
+                                    <input type="time" value={gioDenMoi}
+                                        onChange={e => setGioDenMoi(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '7px 10px', borderRadius: '8px',
+                                            border: '1px solid #D1D5DB', fontSize: '13px', boxSizing: 'border-box'
+                                        }}
+                                    />
+                                ) : (
+                                    <div style={{
+                                        padding: '7px 10px', borderRadius: '8px', background: '#F3F4F6',
+                                        fontSize: '11px', color: '#9CA3AF', border: '1px solid #E5E7EB'
+                                    }}>
+                                        {hintDen}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Giờ đi */}
+                            <div style={{ flex: 1, minWidth: '130px' }}>
+                                <label style={{
+                                    fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px',
+                                    color: coTheChinhDi ? '#374151' : '#9CA3AF'
+                                }}>
+                                    Giờ đi mới
+                                    {!coTheChinhDi && <span style={{ fontSize: '10px', fontWeight: 400 }}> (khoá)</span>}
+                                </label>
+                                {coTheChinhDi ? (
+                                    <input type="time" value={gioDiMoi}
+                                        onChange={e => setGioDiMoi(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '7px 10px', borderRadius: '8px',
+                                            border: '1px solid #D1D5DB', fontSize: '13px', boxSizing: 'border-box'
+                                        }}
+                                    />
+                                ) : (
+                                    <div style={{
+                                        padding: '7px 10px', borderRadius: '8px', background: '#F3F4F6',
+                                        fontSize: '11px', color: '#9CA3AF', border: '1px solid #E5E7EB'
+                                    }}>
+                                        {hintDi}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Buttons */}
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, alignItems: 'flex-end', paddingBottom: '1px' }}>
+                                <button onClick={() => setShowGioForm(false)} style={{
+                                    padding: '7px 12px', borderRadius: '8px', border: '1px solid #D1D5DB',
+                                    background: 'white', cursor: 'pointer', fontSize: '12px'
+                                }}>Hủy</button>
+                                <button
+                                    disabled={!canSubmit || isLoading}
+                                    onClick={() => {
+                                        onDieuChinhGio(lichTrinh,
+                                            coTheChinhDen ? gioDenMoi : null,
+                                            coTheChinhDi ? gioDiMoi : null);
+                                        setShowGioForm(false);
+                                    }}
+                                    style={{
+                                        padding: '7px 14px', borderRadius: '8px', border: 'none',
+                                        background: !canSubmit ? '#D1D5DB' : '#059669',
+                                        color: 'white', cursor: !canSubmit ? 'not-allowed' : 'pointer',
+                                        fontSize: '12px', fontWeight: 600
+                                    }}
+                                >✓ Xác nhận</button>
+                            </div>
+                        </div>
+
+                        {/* Ghi chú ngữ cảnh */}
+                        <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '8px', lineHeight: '1.6' }}>
+                            {!coTheChinhDen && !coTheChinhDi
+                                ? '⚠️ Không còn trường giờ nào có thể điều chỉnh. Hãy chọn phương án khác.'
+                                : '💡 Chỉ nhập giờ cần thay đổi. Tàu giữ nguyên ray, chỉ cập nhật thời gian dự kiến.'}
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
+
+// ── Modal Style Constants ─────────────────────────────────────────────────────
+const MODAL_OVERLAY = {
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+};
+const MODAL_BOX = {
+    background: '#fff', borderRadius: 16, padding: '32px 28px',
+    width: '100%', maxWidth: 480,
+    boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+};
+const MODAL_INPUT = {
+    width: '100%', padding: '9px 12px', borderRadius: 8,
+    border: '1px solid #D1D5DB', fontSize: 13, color: '#111827',
+    outline: 'none', boxSizing: 'border-box',
+};
