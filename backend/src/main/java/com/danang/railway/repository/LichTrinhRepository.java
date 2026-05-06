@@ -11,7 +11,8 @@ public interface LichTrinhRepository extends JpaRepository<LichTrinh, String> {
     List<LichTrinh> findByMaChuyenTau(String maChuyenTau);
     List<LichTrinh> findByMaRay(String maRay);
     List<LichTrinh> findByTrangThai(String trangThai);
-
+    @Query("SELECT lt FROM LichTrinh lt JOIN FETCH lt.chuyenTau ct JOIN FETCH ct.tau")
+    List<LichTrinh> findAllWithDetails();
     // ── Lọc theo ngày chạy (join sang ChuyenTau) ──────────────────────────────
     /**
      * Lấy tất cả LichTrinh theo ngayChay của ChuyenTau liên kết.
