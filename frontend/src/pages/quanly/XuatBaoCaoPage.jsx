@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { lichTrinhAPI } from '../../services/api';
+import { lichTrinhAPI, suCoAPI } from '../../services/api'; // Đã thêm suCoAPI vào đây
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
@@ -34,14 +34,37 @@ const mapTrangThai = (val) => {
   }
 };
 
+const mapLoaiSuCo = (val) => {
+  switch (val) {
+    case 'SU_CO_KY_THUAT': return 'Sự cố Kỹ thuật';
+    case 'SU_CO_CO_SO_HA_TANG': return 'Sự cố Cơ sở hạ tầng';
+    case 'SU_CO_DIEU_HANH': return 'Sự cố Điều hành';
+    case 'SU_CO_THOI_TIET': return 'Sự cố Thời tiết';
+    case 'MAT_LIEN_LAC': return 'Sự cố Mất liên lạc';
+    default: return val || 'Sự cố Khác';
+  }
+};
+
+const mapMucDo = (val) => {
+  switch (val) {
+    case 'THAP': return 'Thấp';
+    case 'TRUNG_BINH': return 'Trung bình';
+    case 'CAO': return 'Cao';
+    case 'NGHIEM_TRONG': return 'Nghiêm trọng';
+    default: return val || '---';
+  }
+};
+
 export default function XuatBaoCaoPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  
+  // --- STATE ---
   const [allLichTrinh, setAllLichTrinh] = useState([]);
+  const [allSuCo, setAllSuCo] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [format, setFormat] = useState('PDF'); 
   
-  // --- STATE BỘ LỌC (Đã nâng cấp 6 tiêu chí) ---
   const [dateRange, setDateRange] = useState({
     from: '2026-04-01',
     to: '2026-04-30'
@@ -51,25 +74,35 @@ export default function XuatBaoCaoPage() {
     loaiTau: 'ALL',
     vaiTro: 'ALL',
     trangThaiTre: 'ALL',
-    trangThaiLT: 'ALL', // Mới: Trạng thái lịch trình
-    maRay: 'ALL',       // Mới: Đường ray
-    coSuCo: 'ALL'       // Mới: Có dính sự cố không
+    trangThaiLT: 'ALL',
+    maRay: 'ALL',
+    coSuCo: 'ALL'
   });
 
-  useEffect(() => { loadData(); }, []);
-
+  // --- TẢI DỮ LIỆU TỪ BACKEND (Dùng API chuẩn) ---
   const loadData = async () => {
     setLoading(true);
+    
+    // 1. Tải Lịch Trình
     try {
-      const res = await lichTrinhAPI.getAll({});
-      const data = res.data.data || res.data || [];
-      setAllLichTrinh(data);
+      const resLT = await lichTrinhAPI.getAll({});
+      setAllLichTrinh(resLT.data?.data || resLT.data || []);
     } catch (e) { 
-      console.error(e); 
+      console.error("Lỗi khi tải dữ liệu Lịch trình:", e); 
+    }
+    
+    // 2. Tải Sự Cố bằng axios chuẩn (tự động đính kèm token)
+    try {
+      const resSC = await suCoAPI.getAll();
+      setAllSuCo(resSC.data?.data || resSC.data || []);
+    } catch (errSC) { 
+      console.warn("Chưa lấy được Sự cố, nhưng Lịch trình vẫn chạy tốt:", errSC); 
     } finally { 
       setLoading(false); 
     }
   };
+
+  useEffect(() => { loadData(); }, []);
 
   // --- LOGIC LỌC & THỐNG KÊ ---
   const reportData = useMemo(() => {
@@ -80,29 +113,21 @@ export default function XuatBaoCaoPage() {
       const date = dateStr.split('T')[0];
       if (date < dateRange.from || date > dateRange.to) return false;
 
-      // Trích xuất an toàn
+      // Trích xuất
       const loaiTauLt = lt.chuyenTau?.tau?.loaiTau;
       const vaiTroLt = lt.chuyenTau?.vaiTroTaiDaNang;
       const phutTre = lt.soPhutTre || 0;
       const maRayLt = lt.maRay || 'NULL';
       const coSuCoLt = lt.maSuCoAnhHuong ? true : false;
 
-      // 2. Lọc theo Loại tàu & Vai trò
+      // 2. Lọc các tiêu chí
       if (filters.loaiTau !== 'ALL' && loaiTauLt !== filters.loaiTau) return false;
       if (filters.vaiTro !== 'ALL' && vaiTroLt !== filters.vaiTro) return false;
-
-      // 3. Lọc theo Trạng thái trễ (Phút trễ)
       if (filters.trangThaiTre === 'ON_TIME' && phutTre > 0) return false;
       if (filters.trangThaiTre === 'LATE_LIGHT' && (phutTre === 0 || phutTre > 15)) return false;
       if (filters.trangThaiTre === 'LATE_HEAVY' && phutTre <= 15) return false;
-
-      // 4. Lọc theo Trạng thái Lịch Trình (MỚI)
       if (filters.trangThaiLT !== 'ALL' && lt.trangThai !== filters.trangThaiLT) return false;
-
-      // 5. Lọc theo Đường Ray (MỚI)
       if (filters.maRay !== 'ALL' && maRayLt !== filters.maRay) return false;
-
-      // 6. Lọc theo Sự Cố (MỚI)
       if (filters.coSuCo === 'YES' && !coSuCoLt) return false;
       if (filters.coSuCo === 'NO' && coSuCoLt) return false;
 
@@ -145,6 +170,15 @@ export default function XuatBaoCaoPage() {
       filtered, tongChuyen, tyLeOnTime, treTB, chuyenTre, statsRole, statsType
     };
   }, [allLichTrinh, dateRange, filters]);
+
+  // --- LOGIC LỌC DANH SÁCH SỰ CỐ CHI TIẾT ---
+  const incidentsInReport = useMemo(() => {
+    const uniqueIncidentIds = [...new Set(reportData.filtered
+      .map(lt => lt.maSuCoAnhHuong)
+      .filter(id => id != null && id !== ''))];
+
+    return allSuCo.filter(sc => uniqueIncidentIds.includes(sc.maSuCo));
+  }, [reportData.filtered, allSuCo]);
 
   // --- XUẤT EXCEL ---
   const exportToExcel = () => {
@@ -406,7 +440,7 @@ export default function XuatBaoCaoPage() {
                     <th style={{ border: '1px solid #000', padding: '6px', width: '15%' }}>Vai Trò</th>
                     <th style={{ border: '1px solid #000', padding: '6px', width: '10%' }}>Ray</th>
                     <th style={{ border: '1px solid #000', padding: '6px', width: '15%' }}>Trạng Thái</th>
-                    <th style={{ border: '1px solid #000', padding: '6px', width: '15%' }}>Sự Cố</th> {/* CỘT MỚI */}
+                    <th style={{ border: '1px solid #000', padding: '6px', width: '15%' }}>Sự Cố</th>
                     <th style={{ border: '1px solid #000', padding: '6px', width: '10%' }}>Trễ(p)</th>
                   </tr>
                 </thead>
@@ -419,7 +453,6 @@ export default function XuatBaoCaoPage() {
                       <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'center' }}>{lt.maRay || '---'}</td>
                       <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'center' }}>{mapTrangThai(lt.trangThai)}</td>
                       
-                      {/* LOGIC HIỂN THỊ SỰ CỐ: Nếu có mã sự cố thì hiện màu đỏ cho nổi bật */}
                       <td style={{ 
                         border: '1px solid #000', 
                         padding: '6px', 
@@ -439,12 +472,40 @@ export default function XuatBaoCaoPage() {
               </table>
             </div>
 
+            {/* --- PHẦN IV: DIỄN GIẢI SỰ CỐ --- */}
+            {incidentsInReport.length > 0 && (
+              <div style={{ marginTop: '25px', pageBreakInside: 'avoid' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 900, borderLeft: '4px solid #000', paddingLeft: '8px', marginBottom: '10px' }}>
+                  IV. CHI TIẾT NỘI DUNG SỰ CỐ GHI NHẬN
+                </h3>
+                <div style={{ 
+                  border: '1px solid #000', 
+                  padding: '15px', 
+                  backgroundColor: '#fffcf5', 
+                  fontSize: '12px',
+                  lineHeight: '1.6'
+                }}>
+                  {incidentsInReport.map((sc, index) => (
+                    <div key={sc.maSuCo} style={{ marginBottom: index === incidentsInReport.length - 1 ? 0 : '10px' }}>
+                      <strong>• Mã {sc.maSuCo}:</strong> {sc.moTa} 
+                      <span style={{ fontStyle: 'italic', color: '#64748b' }}> 
+                        {' '}(Loại: {mapLoaiSuCo(sc.loaiSuCo)}, Mức độ: {mapMucDo(sc.mucDo)})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: '11px', fontStyle: 'italic', marginTop: '5px', color: '#64748b' }}>
+                  * Ghi chú: Chi tiết về phương án xử lý kỹ thuật vui lòng tra cứu trong module Quản lý Sự cố.
+                </p>
+              </div>
+            )}
+
             {/* --- CHỮ KÝ --- */}
             <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', pageBreakInside: 'avoid' }}>
               <div style={{ textAlign: 'center', width: '220px' }}>
                 <p style={{ fontWeight: 800, margin: 0 }}>NGƯỜI LẬP BIỂU</p>
                 <p style={{ fontSize: '11px', fontStyle: 'italic', marginBottom: '60px' }}>(Ký và ghi rõ họ tên)</p>
-                <p style={{ fontWeight: 900 }}>{user?.hoTen || 'Nguyễn Văn A'}</p>
+                <p style={{ fontWeight: 900 }}>{user?.hoTen || 'Nguyễn Phước Quý Bửu'}</p>
               </div>
               <div style={{ textAlign: 'center', width: '250px' }}>
                 <p style={{ margin: 0 }}>Đà Nẵng, ngày {new Date().getDate()} tháng {new Date().getMonth() + 1} năm {new Date().getFullYear()}</p>
