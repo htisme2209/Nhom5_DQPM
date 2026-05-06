@@ -50,6 +50,10 @@ export default function XuLySuCoPage() {
     const [filterTab, setFilterTab] = useState('CHO_TIEP_NHAN');
     const [confirmHuy, setConfirmHuy] = useState(null);
 
+    // ═══ SLA State ═══
+    const [slaInfo, setSlaInfo] = useState(null); // { trangThaiSLA, hanChot, giayConLai }
+    const [slaCountdown, setSlaCountdown] = useState(null); // string "MM:SS"
+
     // Modal Tiếp nhận & Đánh giá
     const [showTiepNhanModal, setShowTiepNhanModal] = useState(false);
     const [tiepNhanForm, setTiepNhanForm] = useState({
@@ -75,6 +79,47 @@ export default function XuLySuCoPage() {
         const interval = setInterval(loadSuCos, 30000);
         return () => clearInterval(interval);
     }, [loadSuCos]);
+
+    // ═══ SLA Polling: mỗi 10s lấy SLA info cho sự cố đang chọn ═══
+    useEffect(() => {
+        if (!selectedSuCo || selectedSuCo.trangThaiXuLy !== 'DANG_XU_LY') {
+            setSlaInfo(null); setSlaCountdown(null); return;
+        }
+        const fetchSla = async () => {
+            try {
+                const res = await suCoAPI.getSlaInfo(selectedSuCo.maSuCo);
+                const data = res.data?.data || res.data;
+                setSlaInfo(data);
+            } catch { /* ignore */ }
+        };
+        fetchSla();
+        const interval = setInterval(fetchSla, 10000);
+        return () => clearInterval(interval);
+    }, [selectedSuCo?.maSuCo, selectedSuCo?.trangThaiXuLy]);
+
+    // ═══ SLA Countdown ticker: mỗi 1s cập nhật đồng hồ đếm ngược ═══
+    useEffect(() => {
+        if (!slaInfo?.giayConLai && slaInfo?.giayConLai !== 0) {
+            setSlaCountdown(null); return;
+        }
+        let remaining = slaInfo.giayConLai;
+        const format = (s) => {
+            if (s <= 0) return '00:00';
+            const m = Math.floor(s / 60);
+            const sec = s % 60;
+            return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+        };
+        setSlaCountdown(format(remaining));
+        const tick = setInterval(() => {
+            remaining--;
+            setSlaCountdown(format(remaining));
+            // Trigger browser notification sound at T-5
+            if (remaining === 300) {
+                try { new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10LBAAAAEAAQARIwAAESMAABAAAAAQ').play(); } catch {}
+            }
+        }, 1000);
+        return () => clearInterval(tick);
+    }, [slaInfo?.giayConLai]);
 
     // Tự động chọn sự cố từ URL param (NVNH chuyển sang sau khi gửi báo cáo)
     useEffect(() => {
@@ -276,6 +321,8 @@ export default function XuLySuCoPage() {
         <>
             <style>{`
                 @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+                @keyframes slaPulse { 0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0.4)} 70%{box-shadow:0 0 0 10px rgba(220,38,38,0)} }
+                @keyframes slaShake { 0%,100%{transform:translateX(0)} 10%,30%,50%,70%,90%{transform:translateX(-2px)} 20%,40%,60%,80%{transform:translateX(2px)} }
             `}</style>
 
             {/* Toast */}
@@ -529,6 +576,21 @@ export default function XuLySuCoPage() {
                                     }}>
                                         {suCo.mucDo === 'KHAN_CAP' ? '🔴' : suCo.mucDo === 'CAO' ? '🟠' : '🟡'} {suCo.mucDo}
                                     </span>
+                                    {/* SLA indicator trên sidebar */}
+                                    {suCo.trangThaiSLA && suCo.trangThaiSLA !== 'NORMAL' && (
+                                        <span style={{
+                                            display: 'inline-block', padding: '2px 8px', borderRadius: '12px',
+                                            fontSize: '10px', fontWeight: 700, marginLeft: '4px',
+                                            background: suCo.trangThaiSLA === 'ESCALATED' ? '#7F1D1D' :
+                                                        suCo.trangThaiSLA === 'RED_ALERT' ? '#DC2626' : '#EAB308',
+                                            color: 'white',
+                                            animation: suCo.trangThaiSLA === 'RED_ALERT' || suCo.trangThaiSLA === 'ESCALATED'
+                                                ? 'slaPulse 1.5s infinite' : 'none'
+                                        }}>
+                                            {suCo.trangThaiSLA === 'ESCALATED' ? '⚠️ LEO THANG' :
+                                             suCo.trangThaiSLA === 'RED_ALERT' ? '🔴 SLA' : '🟡 SLA'}
+                                        </span>
+                                    )}
                                 </div>
                             );
                         })}
@@ -556,6 +618,76 @@ export default function XuLySuCoPage() {
                                             <strong> Thông tư 15/2023/TT-GTVT</strong>.
                                         </div>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* ═══ SLA COUNTDOWN BANNER ═══ */}
+                            {selectedSuCo.trangThaiXuLy === 'DANG_XU_LY' && slaInfo && slaInfo.trangThaiSLA !== 'NORMAL' && (
+                                <div style={{
+                                    background: slaInfo.trangThaiSLA === 'ESCALATED' ? 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%)' :
+                                               slaInfo.trangThaiSLA === 'RED_ALERT' ? 'linear-gradient(135deg, #DC2626 0%, #B91C1C 100%)' :
+                                               'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+                                    borderRadius: 'var(--radius-md)', padding: '16px 20px', marginBottom: '16px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    color: 'white', gap: '16px',
+                                    animation: slaInfo.trangThaiSLA === 'RED_ALERT' ? 'slaShake 0.5s ease-in-out' :
+                                              slaInfo.trangThaiSLA === 'ESCALATED' ? 'slaPulse 2s infinite' : 'none'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ fontSize: '28px' }}>
+                                            {slaInfo.trangThaiSLA === 'ESCALATED' ? '🚨' :
+                                             slaInfo.trangThaiSLA === 'RED_ALERT' ? '⏰' : '⚠️'}
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '2px' }}>
+                                                {slaInfo.trangThaiSLA === 'ESCALATED'
+                                                    ? 'ĐÃ LEO THANG — Chuyển quyền Ban Quản lý'
+                                                    : slaInfo.trangThaiSLA === 'RED_ALERT'
+                                                    ? 'CẢNH BÁO ĐỎ — Sắp hết hạn SLA'
+                                                    : 'CẢNH BÁO VÀNG — Cần xử lý sớm'}
+                                            </div>
+                                            <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                                                Hạn chót phương án: {slaInfo.hanChot
+                                                    ? new Date(slaInfo.hanChot).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                                    : '—'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {slaCountdown && slaInfo.trangThaiSLA !== 'ESCALATED' && (
+                                        <div style={{
+                                            background: 'rgba(0,0,0,0.25)', borderRadius: '12px',
+                                            padding: '8px 20px', textAlign: 'center', minWidth: '100px'
+                                        }}>
+                                            <div style={{ fontSize: '10px', opacity: 0.8, marginBottom: '2px' }}>CÒN LẠI</div>
+                                            <div style={{ fontSize: '24px', fontWeight: 800, fontFamily: 'monospace', letterSpacing: '2px' }}>
+                                                {slaCountdown}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {slaInfo.trangThaiSLA === 'ESCALATED' && (
+                                        <div style={{
+                                            background: 'rgba(255,255,255,0.15)', borderRadius: '12px',
+                                            padding: '8px 16px', fontSize: '12px', textAlign: 'center', maxWidth: '180px'
+                                        }}>
+                                            ⚠️ Đã quá hạn SLA<br/>
+                                            <strong>BQL đã được thông báo</strong><br/>
+                                            và có quyền override phương án
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* SLA NORMAL — hiển thị hạn chót nhỏ */}
+                            {selectedSuCo.trangThaiXuLy === 'DANG_XU_LY' && slaInfo && slaInfo.trangThaiSLA === 'NORMAL' && slaInfo.hanChot && (
+                                <div style={{
+                                    background: '#F0FDF4', border: '1px solid #86EFAC',
+                                    borderRadius: 'var(--radius)', padding: '8px 16px', marginBottom: '12px',
+                                    display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#166534'
+                                }}>
+                                    ⏱️ Hạn chót phương án: <strong>
+                                        {new Date(slaInfo.hanChot).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                    </strong>
+                                    {slaCountdown && <span style={{ marginLeft: 'auto', fontFamily: 'monospace', fontWeight: 600 }}>còn {slaCountdown}</span>}
                                 </div>
                             )}
 
@@ -593,7 +725,19 @@ export default function XuLySuCoPage() {
                                             { label: 'ĐƯỜNG RAY', value: selectedSuCo.maRay },
                                             { label: 'LOẠI SỰ CỐ', value: selectedSuCo.loaiSuCo },
                                             { label: 'MỨC ĐỘ', value: selectedSuCo.mucDo },
-                                            { label: 'TRẠNG THÁI', value: <TrangThaiBadge trangThai={selectedSuCo.trangThaiXuLy} /> }
+                                            { label: 'SLA', value: (
+                                                <span style={{
+                                                    padding: '2px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 700,
+                                                    background: (selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA) === 'ESCALATED' ? '#7F1D1D' :
+                                                               (selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA) === 'RED_ALERT' ? '#FEE2E2' :
+                                                               (selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA) === 'YELLOW_ALERT' ? '#FEF3C7' : '#F0FDF4',
+                                                    color: (selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA) === 'ESCALATED' ? 'white' :
+                                                           (selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA) === 'RED_ALERT' ? '#DC2626' :
+                                                           (selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA) === 'YELLOW_ALERT' ? '#CA8A04' : '#16A34A',
+                                                }}>
+                                                    {(selectedSuCo.trangThaiSLA || slaInfo?.trangThaiSLA || 'NORMAL')}
+                                                </span>
+                                            )}
                                         ].map(({ label, value }) => (
                                             <div key={label}>
                                                 <div style={{ fontSize: '11px', color: 'var(--gray-500)', marginBottom: '6px' }}>{label}</div>

@@ -3,14 +3,18 @@ package com.danang.railway.service;
 import com.danang.railway.entity.*;
 import com.danang.railway.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SuCoService {
 
     private final SuCoRepository suCoRepo;
@@ -18,6 +22,8 @@ public class SuCoService {
     private final LichTrinhRepository lichTrinhRepo;
     private final NhatKyRepository nhatKyRepo;
     private final QuyTacNghiepVuRepository quyTacRepo;
+    private final BoGhiRepository boGhiRepo;
+    private final SlaWorkerService slaWorkerService;
 
     private int getRuleValue(String maQuyTac, int defaultValue) {
         return quyTacRepo.findById(maQuyTac)
@@ -79,6 +85,7 @@ public class SuCoService {
         // Cập nhật thông tin tiếp nhận
         suCo.setMucDo(mucDoChinhThuc);
         suCo.setTrangThaiXuLy("DANG_XU_LY");
+        suCo.setTrangThaiSLA("NORMAL");
         if (thoiGianXuLyUocTinh != null) {
             suCo.setThoiGianXuLyUocTinh(thoiGianXuLyUocTinh);
         }
@@ -132,7 +139,18 @@ public class SuCoService {
                         + ", Phong tỏa: " + (coPhongToaRay ? loaiPhongToa : "Không"),
                 diaChiIp);
 
-        return suCoRepo.findById(maSuCo).orElseThrow();
+        // ═══ SLA: Tính hạn chót phương án ═══
+        SuCo suCoSaved = suCoRepo.findById(maSuCo).orElseThrow();
+        try {
+            LocalDateTime hanChot = slaWorkerService.tinhHanChotPhuongAn(suCoSaved);
+            suCoSaved.setHanChotPhuongAn(hanChot);
+            suCoRepo.save(suCoSaved);
+            log.info("SLA: Hạn chót phương án cho sự cố {} = {}", maSuCo, hanChot);
+        } catch (Exception e) {
+            log.warn("Không tính được hạn chót SLA cho sự cố {}: {}", maSuCo, e.getMessage());
+        }
+
+        return suCoSaved;
     }
 
 
@@ -316,7 +334,10 @@ public class SuCoService {
                     throw new RuntimeException("Phải chỉ định đường ray mới");
                 }
                 
-                // Kiểm tra xung đột
+                // ═══ RÀNG BUỘC VẬT LÝ: Kiểm tra bộ ghi kết nối ═══
+                kiemTraRangBuocVatLy(lichTrinh, maRayMoi);
+                
+                // Kiểm tra xung đột thời gian
                 kiemTraXungDotRay(lichTrinh, maRayMoi);
                 
                 lichTrinh.setMaRay(maRayMoi);
@@ -346,9 +367,179 @@ public class SuCoService {
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // TÍNH NĂNG 1: RÀNG BUỘC VẬT LÝ (Physical Constraint Check)
+    // ══════════════════════════════════════════════════════════════════════════
+
     /**
-     * Kiểm tra xung đột khi đổi ray
+     * Kiểm tra ràng buộc vật lý khi đổi ray.
+     * 1. Xác định bộ ghi khả dụng giữa ray hiện tại và ray mới
+     * 2. Tính khoảng cách thực tế (Δd) giữa tàu và bộ ghi
+     * 3. Kiểm tra Δd >= d_safe (khoảng cách an toàn)
+     * 4. Kiểm tra thời gian tác nghiệp đủ hay không
      */
+    private void kiemTraRangBuocVatLy(LichTrinh lichTrinh, String maRayMoi) {
+        String maRayCu = lichTrinh.getMaRay();
+        if (maRayCu == null) return; // Không có ray hiện tại → bỏ qua
+
+        // 1. Tìm bộ ghi kết nối giữa ray hiện tại và ray mới
+        List<BoGhi> boGhiKhaDung = boGhiRepo.findAvailableByRayConnection(maRayCu, maRayMoi);
+
+        if (boGhiKhaDung.isEmpty()) {
+            // Kiểm tra có bộ ghi nào tồn tại (dù không sẵn sàng)
+            List<BoGhi> boGhiTonTai = boGhiRepo.findByRayConnection(maRayCu, maRayMoi);
+            if (boGhiTonTai.isEmpty()) {
+                throw new RuntimeException(
+                    "Không tồn tại bộ ghi chuyển ray giữa " + maRayCu + " và " + maRayMoi +
+                    ". Hai đường ray này không có kết nối vật lý.");
+            } else {
+                throw new RuntimeException(
+                    "Bộ ghi giữa " + maRayCu + " và " + maRayMoi +
+                    " hiện đang bảo trì hoặc không sẵn sàng (" +
+                    boGhiTonTai.get(0).getMaBoGhi() + ": " + boGhiTonTai.get(0).getTrangThai() + ").");
+            }
+        }
+
+        // 2. Chọn bộ ghi phù hợp nhất (gần tàu nhất nhưng vẫn đủ an toàn)
+        BoGhi boGhiChon = boGhiKhaDung.get(0); // Lấy bộ ghi đầu tiên khả dụng
+
+        // 3. Ước tính vị trí hiện tại của tàu (dùng vị trí Km trên tuyến)
+        double viTriTau = uocTinhViTriTau(lichTrinh);
+        double viTriBoGhi = boGhiChon.getViTriKm();
+        double khoangCach = Math.abs(viTriBoGhi - viTriTau);
+
+        // Lấy khoảng cách an toàn từ quy tắc nghiệp vụ (mặc định 0.5 km)
+        double dSafe = getRuleValue("QT-DIST-SAFE", 500) / 1000.0; // convert m → km
+
+        if (khoangCach < dSafe) {
+            throw new RuntimeException(String.format(
+                "Tàu đã vượt quá điểm ghi chuyển làn hoặc quá gần bộ ghi %s. " +
+                "Khoảng cách: %.2f km, yêu cầu tối thiểu: %.2f km. " +
+                "Không thể bẻ ghi an toàn.",
+                boGhiChon.getMaBoGhi(), khoangCach, dSafe));
+        }
+
+        // 4. Kiểm tra thời gian tác nghiệp
+        int thoiGianTacNghiep = boGhiChon.getThoiGianTacNghiep(); // phút
+
+        // Ước tính tốc độ tàu (km/h) — lấy từ quy tắc hoặc mặc định 40 km/h trong ga
+        double tocDoTau = getRuleValue("QT-SPEED-GA", 40); // km/h
+        double thoiGianDenBoGhi = (khoangCach / tocDoTau) * 60; // phút
+
+        if (thoiGianDenBoGhi < thoiGianTacNghiep) {
+            throw new RuntimeException(String.format(
+                "Không đủ thời gian tác nghiệp ghi %s. " +
+                "Tàu sẽ đến bộ ghi trong %.1f phút, nhưng cần %d phút để bẻ ghi và kiểm tra an toàn.",
+                boGhiChon.getMaBoGhi(), thoiGianDenBoGhi, thoiGianTacNghiep));
+        }
+
+        log.info("✅ Ràng buộc vật lý OK: Bộ ghi {} — khoảng cách {}km (>= {}km), " +
+                "thời gian tác nghiệp {}p (>= {}p)",
+                boGhiChon.getMaBoGhi(), khoangCach, dSafe, thoiGianDenBoGhi, thoiGianTacNghiep);
+    }
+
+    /**
+     * Ước tính vị trí hiện tại của tàu (Km) dựa trên trạng thái lịch trình.
+     * Nếu tàu chưa đến → lấy vị trí ban đầu (đầu ray).
+     * Nếu tàu đã đến → lấy vị trí đường ray (km trung tâm ga).
+     */
+    private double uocTinhViTriTau(LichTrinh lichTrinh) {
+        DuongRay ray = duongRayRepo.findById(lichTrinh.getMaRay()).orElse(null);
+        if (ray == null) return 791.0; // Mặc định vị trí ga Đà Nẵng ≈ 791 km
+
+        // Ước tính dựa trên trạng thái: nếu đã đến ga → tàu đang trên ray
+        if (lichTrinh.getGioDenThucTe() != null) {
+            // Tàu đang ở trong ga → vị trí ≈ giữa ray
+            return 791.0 + (ray.getSoRay() * 0.05); // offset nhỏ theo số ray
+        }
+
+        // Tàu chưa đến → ước tính dựa trên giờ và hướng
+        ChuyenTau ct = lichTrinh.getChuyenTau();
+        if (ct != null && "XUAT_PHAT".equals(ct.getVaiTroTaiDaNang())) {
+            return 791.0; // Đang trong ga chờ xuất phát
+        }
+
+        // Tàu đang tiến vào ga → vị trí tương đối ngoài ga
+        return 790.5; // ≈ 500m trước ga
+    }
+
+    /**
+     * Lấy danh sách bộ ghi khả dụng giữa 2 ray (cho frontend hiển thị)
+     */
+    public List<Map<String, Object>> getBoGhiKhaDung(String maRayCu, String maRayMoi) {
+        List<BoGhi> boGhiList = boGhiRepo.findByRayConnection(maRayCu, maRayMoi);
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+
+        for (BoGhi bg : boGhiList) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("maBoGhi", bg.getMaBoGhi());
+            item.put("rayBatDau", bg.getRayBatDau());
+            item.put("rayKetNoi", bg.getRayKetNoi());
+            item.put("viTriKm", bg.getViTriKm());
+            item.put("thoiGianTacNghiep", bg.getThoiGianTacNghiep());
+            item.put("trangThai", bg.getTrangThai());
+            item.put("khaDung", "SAN_SANG".equals(bg.getTrangThai()));
+            result.add(item);
+        }
+
+        return result;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // TÍNH NĂNG 2: SLA ESCALATION — BQL Override
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * BQL override phương án xử lý khi sự cố đã ESCALATED.
+     * Chỉ BQL mới có quyền gọi khi trangThaiSLA = ESCALATED.
+     */
+    @Transactional
+    public void bqlOverridePhuongAn(String maLichTrinh, String phuongAn,
+                                     String maRayMoi, String maTaiKhoan, String diaChiIp) {
+        LichTrinh lichTrinh = lichTrinhRepo.findById(maLichTrinh)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch trình"));
+
+        // Kiểm tra sự cố có ESCALATED không
+        if (lichTrinh.getMaSuCoAnhHuong() != null) {
+            SuCo suCo = suCoRepo.findById(lichTrinh.getMaSuCoAnhHuong()).orElse(null);
+            if (suCo != null) {
+                suCo.setMaNguoiPheDuyetCuoi(maTaiKhoan);
+                suCoRepo.save(suCo);
+            }
+        }
+
+        // Ghi nhật ký BQL override
+        ghiNhatKy(maTaiKhoan, "BQL_OVERRIDE", "LICH_TRINH", maLichTrinh,
+                "Phương án cũ: " + lichTrinh.getPhuongAnXuLy(),
+                "BQL Override → " + phuongAn + (maRayMoi != null ? " (ray " + maRayMoi + ")" : ""),
+                diaChiIp);
+
+        // Thực hiện phương án (bỏ qua ràng buộc vật lý cho BQL)
+        String phuongAnCu = lichTrinh.getPhuongAnXuLy();
+        String maRayCu = lichTrinh.getMaRay();
+
+        switch (phuongAn) {
+            case "DOI_RAY":
+                if (maRayMoi == null) throw new RuntimeException("Phải chỉ định đường ray mới");
+                kiemTraXungDotRay(lichTrinh, maRayMoi); // Vẫn kiểm tra xung đột thời gian
+                lichTrinh.setMaRay(maRayMoi);
+                lichTrinh.setPhuongAnXuLy("DOI_RAY");
+                break;
+            case "HUY_CHUYEN":
+                lichTrinh.setTrangThai("HUY_CHUYEN");
+                lichTrinh.setPhuongAnXuLy("HUY_CHUYEN");
+                break;
+            default:
+                throw new RuntimeException("Phương án không hợp lệ cho override");
+        }
+
+        lichTrinhRepo.save(lichTrinh);
+
+        if ("DOI_RAY".equals(phuongAn) || "HUY_CHUYEN".equals(phuongAn)) {
+            kiemTraTuDongGiaiPhongRay(lichTrinh, maTaiKhoan, diaChiIp);
+        }
+    }
+
     private void kiemTraXungDotRay(LichTrinh lichTrinh, String maRayMoi) {
         // Lấy ngày chạy từ ChuyenTau
         ChuyenTau chuyenTau = lichTrinh.getChuyenTau();

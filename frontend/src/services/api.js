@@ -91,6 +91,13 @@ export const suCoAPI = {
   capNhatTrangThai: (maSuCo, trangThaiXuLy) => api.put(`/su-co/${maSuCo}`, { trangThaiXuLy }),
   // UC-06: Điều chỉnh giờ lịch trình (không cần đổi ray)
   dieuChinhGio: (data) => api.put('/su-co/dieu-chinh-gio', data),
+
+  // ═══ SLA & Escalation ═══
+  getSlaInfo: (maSuCo) => api.get(`/su-co/${maSuCo}/sla`),
+  bqlOverride: (data) => api.put('/su-co/bql-override', data),
+
+  // ═══ Bộ Ghi (Physical Constraint) ═══
+  getBoGhi: (maRayCu, maRayMoi) => api.get('/su-co/bo-ghi', { params: { maRayCu, maRayMoi } }),
 };
 
 
