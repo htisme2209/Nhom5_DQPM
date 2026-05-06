@@ -398,4 +398,18 @@ public class SuCoController {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
     }
+
+    /**
+     * Lấy danh sách ray có thể chuyển sang (thỏa mãn ràng buộc vật lý) cho một lịch trình
+     */
+    @GetMapping("/{maLichTrinh}/ray-kha-dung")
+    public ResponseEntity<ApiResponse<List<String>>> getRayKhaDungChoLichTrinh(
+            @PathVariable String maLichTrinh) {
+        try {
+            List<String> result = suCoService.getRayKhaDungChoLichTrinh(maLichTrinh);
+            return ResponseEntity.ok(ApiResponse.ok(result));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
 }

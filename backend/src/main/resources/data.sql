@@ -4,8 +4,8 @@
 -- Bộ dữ liệu tối giản: Mỗi trường hợp 1 record để dễ test
 -- ============================================
 
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'railway_danang1')
-    CREATE DATABASE railway_danang1;
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'railway_danang')
+    CREATE DATABASE railway_danang;
 GO
 USE railway_danang;
 GO
@@ -50,14 +50,15 @@ INSERT INTO TAU (ma_tau, ten_tau, loai_tau, so_toa, suc_chua_hanh_khach, trang_t
 
 -- ============================================
 -- 4. ĐƯỜNG RAY (Ga Đà Nẵng)
--- Tạo đủ các trạng thái để test ràng buộc phân ray
+-- 6 trạng thái để test mọi trường hợp
 -- ============================================
-INSERT INTO DUONG_RAY (ma_ray, ma_ga, so_ray, chieu_dai_ray, trang_thai, ghi_chu, ngay_tao, ngay_cap_nhat) VALUES
-('RAY-01', 'GA-DN', 1, 400.00, 'SAN_SANG',   N'Trống, có thể xếp tàu', GETDATE(), GETDATE()),
-('RAY-02', 'GA-DN', 2, 400.00, 'DANG_SU_DUNG',N'Đang có tàu dừng', GETDATE(), GETDATE()),
-('RAY-03', 'GA-DN', 3, 400.00, 'BAO_TRI',    N'Đang bảo trì định kỳ', GETDATE(), GETDATE()),
-('RAY-04', 'GA-DN', 4, 400.00, 'PHONG_TOA',  N'Phong tỏa do sự cố', GETDATE(), GETDATE()),
-('RAY-05', 'GA-DN', 5, 400.00, 'SAN_SANG',   N'Trống, ray dự phòng', GETDATE(), GETDATE());
+INSERT INTO DUONG_RAY (ma_ray, ma_ga, so_ray, chieu_dai_ray, trang_thai, ghi_chu, ngay_tao, thoi_gian_bat_dau_phong_toa, thoi_gian_ket_thuc_phong_toa) VALUES
+('RAY-01', 'GA-DN', 1, 400.00, 'SAN_SANG',   N'Trống, có thể xếp tàu', GETDATE(), NULL, NULL),
+('RAY-02', 'GA-DN', 2, 400.00, 'DANG_SU_DUNG',N'Đang có tàu dừng', GETDATE(), NULL, NULL),
+('RAY-03', 'GA-DN', 3, 400.00, 'BAO_TRI',    N'Đang bảo trì định kỳ', GETDATE(), NULL, NULL),
+('RAY-04', 'GA-DN', 4, 400.00, 'PHONG_TOA_CUNG',  N'Phong tỏa cứng do sự cố nghiêm trọng', GETDATE(), GETDATE(), DATEADD(HOUR, 24, GETDATE())),
+('RAY-05', 'GA-DN', 5, 400.00, 'PHONG_TOA_TAM',  N'Phong tỏa tạm thời, có thể tự giải phóng', GETDATE(), DATEADD(HOUR, -1, GETDATE()), DATEADD(HOUR, 2, GETDATE())),
+('RAY-06', 'GA-DN', 6, 400.00, 'SAN_SANG',   N'Trống, ray dự phòng', GETDATE(), NULL, NULL);
 
 -- ============================================
 -- 5. BỘ GHI (Test Ràng buộc vật lý)
@@ -65,21 +66,26 @@ INSERT INTO DUONG_RAY (ma_ray, ma_ga, so_ray, chieu_dai_ray, trang_thai, ghi_chu
 INSERT INTO BO_GHI (ma_bo_ghi, ray_bat_dau, ray_ket_noi, vi_tri_km, thoi_gian_tac_nghiep, trang_thai, ghi_chu) VALUES
 ('BG-01-02', 'RAY-01', 'RAY-02', 790.800, 3, 'SAN_SANG', N'Nối Ray 1 và 2 - Test đổi ray thành công'),
 ('BG-01-05', 'RAY-01', 'RAY-05', 790.900, 5, 'BAO_TRI',  N'Nối Ray 1 và 5 - Test đổi ray thất bại do bảo trì'),
+('BG-01-06', 'RAY-01', 'RAY-06', 790.850, 4, 'SAN_SANG', N'Nối Ray 1 và 6 - Cho phép chuyển ray an toàn'),
 ('BG-02-04', 'RAY-02', 'RAY-04', 791.100, 4, 'SAN_SANG', N'Nối Ray 2 và 4 - Test đổi ray'),
-('BG-04-05', 'RAY-04', 'RAY-05', 791.200, 3, 'SAN_SANG', N'Nối Ray 4 và 5 - Test đổi ray');
+('BG-04-06', 'RAY-04', 'RAY-06', 791.200, 3, 'SAN_SANG', N'Nối Ray 4 và 6 - Test đổi ray'),
+('BG-05-06', 'RAY-05', 'RAY-06', 791.300, 3, 'SAN_SANG', N'Nối Ray 5 và 6 - Test đổi ray');
 
 -- ============================================
 -- 6. CHUYẾN TÀU
 -- Đủ 3 vai trò: TRUNG_GIAN, XUAT_PHAT, DIEM_CUOI
 -- ============================================
 INSERT INTO CHUYEN_TAU (ma_chuyen_tau, ma_tau, ma_tuyen, vai_tro_tai_da_nang, gio_den_du_kien, gio_di_du_kien, ngay_chay, trang_thai, ngay_tao, ngay_cap_nhat) VALUES
-('CT-SE1-TG', 'SE1', 'TU-BN', 'TRUNG_GIAN', '10:00', '10:20', 'HANG_NGAY', 'HOAT_DONG', GETDATE(), GETDATE()),
-('CT-HH1-XP', 'HH1', 'TU-DN-HUE', 'XUAT_PHAT', NULL, '14:00', 'HANG_NGAY', 'HOAT_DONG', GETDATE(), GETDATE()),
-('CT-SE1-DC', 'SE1', 'TU-DN-HUE', 'DIEM_CUOI', '18:00', NULL, 'HANG_NGAY', 'HOAT_DONG', GETDATE(), GETDATE());
+-- Tàu chạy hôm nay
+('CT-SE1-TG', 'SE1', 'TU-BN', 'TRUNG_GIAN', '10:00', '10:20', CONVERT(VARCHAR(10), GETDATE(), 120), 'HOAT_DONG', GETDATE(), GETDATE()),
+('CT-HH1-XP', 'HH1', 'TU-DN-HUE', 'XUAT_PHAT', NULL, '14:00', CONVERT(VARCHAR(10), GETDATE(), 120), 'HOAT_DONG', GETDATE(), GETDATE()),
+('CT-SE1-DC', 'SE1', 'TU-DN-HUE', 'DIEM_CUOI', '18:00', NULL, CONVERT(VARCHAR(10), GETDATE(), 120), 'HOAT_DONG', GETDATE(), GETDATE()),
+-- Tàu chạy ngày mai
+('CT-SE2-TG', 'SE1', 'TU-BN', 'TRUNG_GIAN', '10:00', '10:20', CONVERT(VARCHAR(10), DATEADD(day, 1, GETDATE()), 120), 'HOAT_DONG', GETDATE(), GETDATE());
 
 -- ============================================
 -- 7. LỊCH TRÌNH
--- Bao phủ các case test chính
+-- 6 Case bao phủ toàn bộ vòng đời
 -- ============================================
 DECLARE @today DATE = CAST(GETDATE() AS DATE);
 DECLARE @t DATETIME = CAST(@today AS DATETIME);
@@ -95,41 +101,62 @@ INSERT INTO LICH_TRINH (ma_lich_trinh, ma_chuyen_tau, ma_ray, ma_nguoi_cap_nhat,
 ('LT-CASE-3', 'CT-SE1-DC', 'RAY-01', 'NVDH-001', 'SC-ESCALATED', DATEADD(MINUTE,1080,@t), NULL, NULL, NULL, 45, 'TRE', 'CHO_RAY', N'Test BQL Override và Đổi Ray', GETDATE(), GETDATE()),
 
 -- Case 4: Tàu bị hủy do sự cố (HUY)
-('LT-CASE-4', 'CT-SE1-TG', 'RAY-04', 'NVDH-001', 'SC-NORMAL', DATEADD(MINUTE,500,@t), DATEADD(MINUTE,520,@t), NULL, NULL, 0, 'HUY', 'HUY_CHUYEN', N'Đã hủy chuyến do ray 4 phong tỏa', GETDATE(), GETDATE());
+('LT-CASE-4', 'CT-SE1-TG', 'RAY-04', 'NVDH-001', 'SC-NORMAL', DATEADD(MINUTE,500,@t), DATEADD(MINUTE,520,@t), NULL, NULL, 0, 'HUY', 'HUY_CHUYEN', N'Đã hủy chuyến do ray 4 phong tỏa', GETDATE(), GETDATE()),
+
+-- Case 5: Tàu đã xuất phát thành công (DANG_DI_CHUYEN)
+('LT-CASE-5', 'CT-HH1-XP', 'RAY-06', 'NVDH-001', NULL, NULL, DATEADD(MINUTE,300,@t), NULL, DATEADD(MINUTE,305,@t), 5, 'DANG_DI_CHUYEN', NULL, N'Test tàu đã chạy', GETDATE(), GETDATE()),
+
+-- Case 6: Lịch trình cũ hôm qua (DA_HOAN_THANH)
+('LT-CASE-6', 'CT-SE1-DC', 'RAY-06', 'NVDH-001', NULL, DATEADD(MINUTE,-1440,@t), NULL, DATEADD(MINUTE,-1430,@t), NULL, 10, 'DA_HOAN_THANH', NULL, N'Test lịch sử', DATEADD(DAY, -1, GETDATE()), DATEADD(DAY, -1, GETDATE())),
+
+-- Case 7: Tàu phụ sắp đến (CHO_XAC_NHAN)
+('LT-CASE-7', 'CT-SE2-TG', NULL, NULL, NULL, DATEADD(MINUTE,720,@t), DATEADD(MINUTE,750,@t), NULL, NULL, 0, 'CHO_XAC_NHAN', NULL, N'Test conflict xếp ray', GETDATE(), GETDATE()),
+
+-- Case 8: Tàu đang bị sự cố RED ALERT (TRE)
+('LT-CASE-8', 'CT-SE1-TG', 'RAY-02', 'NVDH-001', 'SC-RED-TRAIN', DATEADD(MINUTE,650,@t), DATEADD(MINUTE,670,@t), NULL, NULL, 20, 'TRE', 'CHO_RAY', N'Test đổi ray khẩn cấp RED', GETDATE(), GETDATE());
 
 -- ============================================
 -- 8. SỰ CỐ (Test SLA)
--- Đủ 4 trạng thái SLA: NORMAL, YELLOW, RED, ESCALATED
+-- Đủ 6 trạng thái vòng đời sự cố và SLA
 -- ============================================
 INSERT INTO SU_CO (ma_su_co, ma_lich_trinh, ma_nguoi_ghi_nhan, ma_ray, loai_su_co, mo_ta, muc_do, trang_thai_xu_ly, ngay_xay_ra, ngay_xu_ly, ngay_tao, han_chot_phuong_an, trang_thai_sla, ma_nguoi_phe_duyet_cuoi) VALUES
--- SC-01: Chờ tiếp nhận (Test luồng NVĐH tiếp nhận)
-('SC-NEW', NULL, 'NVNG-001', 'RAY-05', 'SU_CO_KY_THUAT', N'Gãy ghi nhánh ray 5, cần phong tỏa ray để sửa chữa', 'CAO', 'CHO_TIEP_NHAN', GETDATE(), NULL, GETDATE(), NULL, 'NORMAL', NULL),
+-- 1. Chờ tiếp nhận
+('SC-NEW', NULL, 'NVNG-001', 'RAY-05', 'SU_CO_KY_THUAT', N'Gãy ghi nhánh ray 5', 'CAO', 'CHO_TIEP_NHAN', GETDATE(), NULL, GETDATE(), NULL, 'NORMAL', NULL),
 
--- SC-02: Đang xử lý - SLA NORMAL (Còn nhiều thời gian)
+-- 2. Đang xử lý - SLA NORMAL (Còn nhiều thời gian)
 ('SC-NORMAL', 'LT-CASE-4', 'NVNG-001', 'RAY-04', 'SU_CO_HA_TANG', N'Sụt lún nhẹ ray 4', 'TRUNG_BINH', 'DANG_XU_LY', DATEADD(MINUTE, -10, GETDATE()), NULL, DATEADD(MINUTE, -10, GETDATE()), DATEADD(MINUTE, 60, GETDATE()), 'NORMAL', NULL),
 
--- SC-03: Đang xử lý - SLA YELLOW (Còn <= 15 phút)
-('SC-YELLOW', NULL, 'NVNG-001', NULL, 'MAT_LIEN_LAC', N'Mất tín hiệu liên lạc tại khu vực ga', 'KHAN_CAP', 'DANG_XU_LY', DATEADD(MINUTE, -20, GETDATE()), NULL, DATEADD(MINUTE, -20, GETDATE()), DATEADD(MINUTE, 10, GETDATE()), 'YELLOW_ALERT', NULL),
+-- 3. Đang xử lý - SLA YELLOW (Còn <= 15 phút)
+('SC-YELLOW', NULL, 'NVNG-001', NULL, 'MAT_LIEN_LAC', N'Mất tín hiệu liên lạc', 'KHAN_CAP', 'DANG_XU_LY', DATEADD(MINUTE, -20, GETDATE()), NULL, DATEADD(MINUTE, -20, GETDATE()), DATEADD(MINUTE, 10, GETDATE()), 'YELLOW_ALERT', NULL),
 
--- SC-04: Đang xử lý - SLA RED (Còn <= 5 phút)
-('SC-RED', NULL, 'NVNG-001', NULL, 'THOI_TIET', N'Mưa lớn ngập một phần sân ga', 'CAO', 'DANG_XU_LY', DATEADD(MINUTE, -30, GETDATE()), NULL, DATEADD(MINUTE, -30, GETDATE()), DATEADD(MINUTE, 2, GETDATE()), 'RED_ALERT', NULL),
+-- 4. Đang xử lý - SLA RED (Còn <= 5 phút)
+('SC-RED', NULL, 'NVNG-001', NULL, 'THOI_TIET', N'Mưa lớn ngập sân ga', 'CAO', 'DANG_XU_LY', DATEADD(MINUTE, -30, GETDATE()), NULL, DATEADD(MINUTE, -30, GETDATE()), DATEADD(MINUTE, 2, GETDATE()), 'RED_ALERT', NULL),
 
--- SC-05: Đang xử lý - SLA ESCALATED (Quá hạn -> BQL Override)
-('SC-ESCALATED', 'LT-CASE-3', 'NVNG-001', 'RAY-01', 'SU_CO_KY_THUAT', N'Hỏng phanh tàu SE1, cần đổi ray gấp', 'CAO', 'DANG_XU_LY', DATEADD(MINUTE, -60, GETDATE()), NULL, DATEADD(MINUTE, -60, GETDATE()), DATEADD(MINUTE, -10, GETDATE()), 'ESCALATED', NULL);
+-- 5. Đang xử lý - SLA ESCALATED (Quá hạn -> BQL Override)
+('SC-ESCALATED', 'LT-CASE-3', 'NVNG-001', 'RAY-01', 'SU_CO_KY_THUAT', N'Hỏng phanh tàu SE1', 'CAO', 'DANG_XU_LY', DATEADD(MINUTE, -60, GETDATE()), NULL, DATEADD(MINUTE, -60, GETDATE()), DATEADD(MINUTE, -10, GETDATE()), 'ESCALATED', NULL),
+
+-- 6. Đã xử lý thành công
+('SC-RESOLVED', NULL, 'NVNG-001', 'RAY-03', 'SU_CO_HA_TANG', N'Đã khắc phục ray 3', 'TRUNG_BINH', 'DA_XU_LY', DATEADD(DAY, -1, GETDATE()), GETDATE(), DATEADD(DAY, -1, GETDATE()), DATEADD(MINUTE, 120, GETDATE()), 'NORMAL', 'BQL-001'),
+
+-- 7. Đang xử lý - Sự cố liên quan đến tàu (RED ALERT)
+('SC-RED-TRAIN', 'LT-CASE-8', 'NVNG-001', 'RAY-02', 'SU_CO_KY_THUAT', N'Lỗi động cơ, cần kéo tàu', 'CAO', 'DANG_XU_LY', DATEADD(MINUTE, -20, GETDATE()), NULL, DATEADD(MINUTE, -20, GETDATE()), DATEADD(MINUTE, 2, GETDATE()), 'RED_ALERT', NULL);
 
 -- ============================================
 -- 9. KẾ HOẠCH ĐẶC BIỆT
--- Đủ trạng thái để test duyệt
+-- 3 trạng thái
 -- ============================================
 INSERT INTO KE_HOACH_DAC_BIET (ma_ke_hoach, ma_nguoi_gui, ma_nguoi_duyet, ma_lich_trinh, tieu_de, noi_dung, muc_do_uu_tien, trang_thai, y_kien_duyet, ngay_gui, ngay_duyet) VALUES
-('KH-CHO-DUYET', 'NVDH-001', NULL, NULL, N'Đề xuất bảo trì ray 3', N'Cần bảo trì ray 3 trong 24h', 'CAO', 'CHO_PHE_DUYET', NULL, GETDATE(), NULL),
-('KH-DA-DUYET', 'NVDH-001', 'BQL-001', NULL, N'Tăng cường chuyến lễ', N'Bổ sung 2 tàu khách', 'BINH_THUONG', 'DA_PHE_DUYET', N'Đồng ý triển khai', DATEADD(DAY, -1, GETDATE()), GETDATE());
+('KH-CHO-DUYET', 'NVDH-001', NULL, NULL, N'Đề xuất bảo trì', N'Cần bảo trì ray 3', 'CAO', 'CHO_PHE_DUYET', NULL, GETDATE(), NULL),
+('KH-DA-DUYET', 'NVDH-001', 'BQL-001', NULL, N'Tăng cường chuyến', N'Bổ sung tàu khách', 'BINH_THUONG', 'DA_PHE_DUYET', N'Đồng ý triển khai', DATEADD(DAY, -1, GETDATE()), GETDATE()),
+('KH-TU-CHOI', 'NVDH-001', 'BQL-001', NULL, N'Dời ga tạm', N'Đề xuất dời ga', 'THAP', 'TU_CHOI', N'Không hợp lý, thiếu ngân sách', DATEADD(DAY, -2, GETDATE()), GETDATE());
 
 -- ============================================
 -- 10. CHỈ ĐẠO
+-- 2 trạng thái
 -- ============================================
 INSERT INTO CHI_DAO (ma_chi_dao, ma_nguoi_gui, ma_nguoi_nhan, tieu_de, noi_dung, muc_do_uu_tien, trang_thai, ngay_gui, ngay_doc) VALUES
-('CD-01', 'BQL-001', 'NVDH-001', N'Chú ý an toàn mưa bão', N'Giảm tốc độ khi vào ga', 'CAO', 'DA_GUI', GETDATE(), NULL);
+('CD-GUI', 'BQL-001', 'NVDH-001', N'Chú ý an toàn', N'Giảm tốc độ khi vào ga', 'CAO', 'DA_GUI', GETDATE(), NULL),
+('CD-DOC', 'BQL-001', 'NVNG-001', N'Họp giao ban', N'Chuẩn bị báo cáo tháng', 'BINH_THUONG', 'DA_DOC', DATEADD(DAY, -1, GETDATE()), GETDATE());
 
 -- ============================================
 -- 11. NHẬT KÝ

@@ -3,3 +3,4 @@ backend/target/
 .idea/
 *.class
 backend/.idea/
+target/

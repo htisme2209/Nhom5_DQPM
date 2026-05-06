@@ -895,6 +895,37 @@ function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi, on
     const [gioDenMoi, setGioDenMoi] = useState('');
     const [gioDiMoi, setGioDiMoi] = useState('');
 
+    // State cho valid tracks
+    const [validTracks, setValidTracks] = useState([]);
+    const [isValidatingTracks, setIsValidatingTracks] = useState(true);
+
+    useEffect(() => {
+        let isMounted = true;
+        const fetchTracks = async () => {
+            if (isHuyed || isDone) {
+                if (isMounted) setIsValidatingTracks(false);
+                return;
+            }
+            try {
+                const res = await suCoAPI.getRayKhaDung(lichTrinh.maLichTrinh);
+                if (isMounted) {
+                    setValidTracks(res.data?.data || []);
+                    setIsValidatingTracks(false);
+                }
+            } catch (err) {
+                console.error("Lỗi khi fetch ray khả dụng", err);
+                if (isMounted) setIsValidatingTracks(false);
+            }
+        };
+        fetchTracks();
+        return () => { isMounted = false; };
+    }, [lichTrinh.maLichTrinh, isHuyed, isDone]);
+
+    const isDaDen = !!lichTrinh.gioDenThucTe;
+    const isXuatPhat = !lichTrinh.gioDenDuKien && !!lichTrinh.gioDiDuKien;
+    const isTrongGa = isDaDen || isXuatPhat;
+    const canChangeTrack = !isTrongGa && validTracks.length > 0;
+
     const formatDT = (dt) => {
         if (!dt) return '--:--';
         const d = new Date(dt);
@@ -935,6 +966,27 @@ function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi, on
                         <span>🕐 Đến: <strong>{formatDT(lichTrinh.gioDenDuKien)}</strong></span>
                         <span>🕐 Đi: <strong>{formatDT(lichTrinh.gioDiDuKien)}</strong></span>
                     </div>
+                    
+                    {/* Visual Constraint Feedback */}
+                    {!isHuyed && !isDone && (
+                        <div style={{ marginTop: '8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {isValidatingTracks ? (
+                                <span style={{ color: 'var(--gray-400)' }}>⏳ Đang kiểm tra ray khả dụng...</span>
+                            ) : isTrongGa ? (
+                                <span style={{ color: '#DC2626', fontWeight: 600, background: '#FEE2E2', padding: '2px 6px', borderRadius: '4px' }}>
+                                    🔒 Tàu đã vào ga, không thể bẻ ghi
+                                </span>
+                            ) : validTracks.length === 0 ? (
+                                <span style={{ color: '#D97706', fontWeight: 600, background: '#FEF3C7', padding: '2px 6px', borderRadius: '4px' }}>
+                                    ⚠️ Không có ray thay thế hợp lệ (quá điểm ghi hoặc xung đột)
+                                </span>
+                            ) : (
+                                <span style={{ color: '#16A34A', fontWeight: 600, background: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' }}>
+                                    🟢 Có thể chuyển: {validTracks.map(r => r.replace('RAY-0', 'R')).join(', ')}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Status badge */}
@@ -974,7 +1026,7 @@ function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi, on
 
                     <span style={{ color: 'var(--gray-300)' }}>|</span>
 
-                    {/* Điều chỉnh giờ — phương án mới */}
+                    {/* Điều chỉnh giờ */}
                     <button onClick={() => {
                         setGioDenMoi(formatDT(lichTrinh.gioDenDuKien) === '--:--' ? '' : formatDT(lichTrinh.gioDenDuKien));
                         setGioDiMoi(formatDT(lichTrinh.gioDiDuKien) === '--:--' ? '' : formatDT(lichTrinh.gioDiDuKien));
@@ -993,17 +1045,29 @@ function LichTrinhAnhHuongCard({ lichTrinh, actionLoading, onHuy, onDieuPhoi, on
                     <span style={{ color: 'var(--gray-300)' }}>|</span>
 
                     {/* Điều phối đổi ray */}
-                    <button onClick={onDieuPhoi} disabled={isLoading} style={{
-                        padding: '6px 14px', borderRadius: '8px',
-                        border: '1.5px solid var(--navy-500)',
-                        background: 'var(--navy-600)', color: 'white',
-                        fontSize: '12px', fontWeight: 600,
-                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s'
-                    }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--navy-700)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'var(--navy-600)'}
-                    >🔄 Đổi ray →</button>
+                    {!canChangeTrack && !isValidatingTracks ? (
+                        <div style={{
+                            padding: '6px 14px', borderRadius: '8px',
+                            background: '#F3F4F6', color: '#9CA3AF',
+                            fontSize: '12px', fontWeight: 600,
+                            display: 'flex', alignItems: 'center', gap: '5px',
+                            cursor: 'not-allowed', border: '1.5px solid transparent'
+                        }} title="Không thể bẻ ghi do tàu đã vượt quá điểm an toàn hoặc không có ray phù hợp">
+                            🔒 Đổi ray
+                        </div>
+                    ) : (
+                        <button onClick={onDieuPhoi} disabled={isLoading || isValidatingTracks} style={{
+                            padding: '6px 14px', borderRadius: '8px',
+                            border: '1.5px solid var(--navy-500)',
+                            background: 'var(--navy-600)', color: 'white',
+                            fontSize: '12px', fontWeight: 600,
+                            cursor: (isLoading || isValidatingTracks) ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.15s'
+                        }}
+                            onMouseEnter={e => { if (!isLoading && !isValidatingTracks) e.currentTarget.style.background = 'var(--navy-700)'; }}
+                            onMouseLeave={e => { if (!isLoading && !isValidatingTracks) e.currentTarget.style.background = 'var(--navy-600)'; }}
+                        >🔄 Đổi ray →</button>
+                    )}
                 </div>
             )}
 

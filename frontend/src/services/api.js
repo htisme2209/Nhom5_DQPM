@@ -98,6 +98,7 @@ export const suCoAPI = {
 
   // ═══ Bộ Ghi (Physical Constraint) ═══
   getBoGhi: (maRayCu, maRayMoi) => api.get('/su-co/bo-ghi', { params: { maRayCu, maRayMoi } }),
+  getRayKhaDung: (maLichTrinh) => api.get(`/su-co/${maLichTrinh}/ray-kha-dung`),
 };
 
 

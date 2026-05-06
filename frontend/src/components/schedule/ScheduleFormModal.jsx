@@ -30,8 +30,12 @@ export default function ScheduleFormModal({
 
         return chuyenTau.filter(ct => {
             if (!ct.ngayChay) return false;
-            const ctNgayChay = new Date(ct.ngayChay).toISOString().split('T')[0];
-            return ctNgayChay === form.ngayChay;
+            // Nếu data trả về YYYY-MM-DD
+            if (ct.ngayChay.includes('-')) {
+                const ctNgayChay = new Date(ct.ngayChay).toISOString().split('T')[0];
+                return ctNgayChay === form.ngayChay;
+            }
+            return false;
         });
     }, [chuyenTau, form.ngayChay]);
 

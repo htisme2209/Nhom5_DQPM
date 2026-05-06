@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { duongRayAPI, lichTrinhAPI, chuyenTauAPI, suCoAPI } from '../../services/api';
+import RailwayMap from '../../components/schedule/RailwayMap';
 import {
     HOUR_WIDTH, TOTAL_WIDTH, TIMELINE_START, TIMELINE_END,
     generateTimeSlots, getPxPos, getPxWidth, formatTime
@@ -417,6 +418,8 @@ export default function DieuPhoiRayPage() {
 
     if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>⏳ Đang tải...</div>;
 
+    const currentSuCo = isIncidentMode ? activeSuCos.find(sc => sc.maSuCo === suCoId) : null;
+
     return (
         <>
             {toast && (
@@ -475,6 +478,14 @@ export default function DieuPhoiRayPage() {
                 </div>
             </div>
 
+            {/* Sơ đồ Tuyến & Bộ Ghi */}
+            <div style={{ marginBottom: '16px' }}>
+                <RailwayMap 
+                    duongRay={duongRay} 
+                    lichTrinh={allLichTrinh}
+                    suCoActive={currentSuCo}
+                />
+            </div>
 
             {/* Banner sự cố */}
             {isIncidentMode && (

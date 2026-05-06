@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -459,8 +460,36 @@ public class SuCoService {
             return 791.0; // Đang trong ga chờ xuất phát
         }
 
-        // Tàu đang tiến vào ga → vị trí tương đối ngoài ga
-        return 790.5; // ≈ 500m trước ga
+        // Tàu đang tiến vào ga → ước tính còn cách xa ga đủ an toàn để bẻ ghi (Ví dụ 6km)
+        return 785.0; 
+    }
+
+    /**
+     * Lấy danh sách các đường ray mà tàu có thể chuyển sang (thỏa mãn ràng buộc vật lý)
+     */
+    public List<String> getRayKhaDungChoLichTrinh(String maLichTrinh) {
+        LichTrinh lt = lichTrinhRepo.findById(maLichTrinh)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy lịch trình"));
+        
+        List<String> validTracks = new ArrayList<>( );
+        List<DuongRay> allTracks = duongRayRepo.findAll();
+        
+        String maRayCu = lt.getMaRay();
+        if (maRayCu == null) {
+            for (DuongRay r : allTracks) validTracks.add(r.getMaRay());
+            return validTracks;
+        }
+
+        for (DuongRay rayMoi : allTracks) {
+            if (rayMoi.getMaRay().equals(maRayCu)) continue;
+            try {
+                kiemTraRangBuocVatLy(lt, rayMoi.getMaRay());
+                validTracks.add(rayMoi.getMaRay());
+            } catch (Exception e) {
+                // Không thỏa mãn ràng buộc vật lý
+            }
+        }
+        return validTracks;
     }
 
     /**
@@ -541,7 +570,45 @@ public class SuCoService {
     }
 
     private void kiemTraXungDotRay(LichTrinh lichTrinh, String maRayMoi) {
-        // Lấy ngày chạy từ ChuyenTau
+        // 1. Kiểm tra trạng thái phong tỏa của đường ray mới
+        DuongRay rayMoi = duongRayRepo.findById(maRayMoi)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy đường ray mới"));
+
+        if ("PHONG_TOA_CUNG".equals(rayMoi.getTrangThai())) {
+            throw new RuntimeException("Không thể chuyển sang đường ray đang phong tỏa cứng: " + maRayMoi);
+        }
+
+        // Nếu phong tỏa tạm, kiểm tra xem khoảng thời gian hoạt động của tàu có trùng với thời gian phong tỏa không
+        if ("PHONG_TOA_TAM".equals(rayMoi.getTrangThai()) && rayMoi.getThoiGianBatDauPhongToa() != null) {
+            LocalDateTime thoiGianPhongToa = rayMoi.getThoiGianBatDauPhongToa();
+            LocalDateTime thoiGianKetThucPhongToa = rayMoi.getThoiGianKetThucPhongToa();
+            
+            // Lấy khoảng thời gian của lịch trình
+            LocalDateTime batDauTau = lichTrinh.getGioDenDuKien() != null ? lichTrinh.getGioDenDuKien() 
+                : (lichTrinh.getGioDiDuKien() != null ? lichTrinh.getGioDiDuKien().minusMinutes(30) : LocalDateTime.now());
+            LocalDateTime ketThucTau = lichTrinh.getGioDiDuKien() != null ? lichTrinh.getGioDiDuKien()
+                : (lichTrinh.getGioDenDuKien() != null ? lichTrinh.getGioDenDuKien().plusMinutes(30) : batDauTau.plusMinutes(60));
+
+            // Kiểm tra trùng lặp thời gian
+            boolean isOverlap = false;
+            if (thoiGianKetThucPhongToa != null) {
+                // Có thời gian kết thúc rõ ràng
+                if (batDauTau.isBefore(thoiGianKetThucPhongToa) && ketThucTau.isAfter(thoiGianPhongToa)) {
+                    isOverlap = true;
+                }
+            } else {
+                // Không có thời gian kết thúc -> Giả định phong tỏa dài hạn, luôn overlap nếu sau lúc bắt đầu
+                if (ketThucTau.isAfter(thoiGianPhongToa)) {
+                    isOverlap = true;
+                }
+            }
+
+            if (isOverlap) {
+                throw new RuntimeException("Không thể chuyển sang đường ray đang bị phong tỏa tạm thời (thời gian hoạt động của tàu trùng với thời gian phong tỏa).");
+            }
+        }
+
+        // 2. Lấy ngày chạy từ ChuyenTau
         ChuyenTau chuyenTau = lichTrinh.getChuyenTau();
         if (chuyenTau == null || chuyenTau.getNgayChay() == null) {
             throw new RuntimeException("Không thể xác định ngày chạy của lịch trình");
@@ -551,7 +618,7 @@ public class SuCoService {
                 ? LocalDateTime.parse(chuyenTau.getNgayChay()).toLocalDate() 
                 : java.time.LocalDate.parse(chuyenTau.getNgayChay());
         
-        // Tìm các lịch trình khác cùng ray trong cùng ngày
+        // 3. Tìm các lịch trình khác cùng ray trong cùng ngày
         List<LichTrinh> lichTrinhCungRay = lichTrinhRepo.findByMaRay(maRayMoi);
 
         for (LichTrinh lt : lichTrinhCungRay) {
