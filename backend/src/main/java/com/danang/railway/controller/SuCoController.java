@@ -5,6 +5,7 @@ import com.danang.railway.entity.LichTrinh;
 import com.danang.railway.entity.SuCo;
 import com.danang.railway.repository.TaiKhoanRepository;
 import com.danang.railway.service.SuCoService;
+import com.danang.railway.service.SlaWorkerService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +22,7 @@ public class SuCoController {
 
     private final SuCoService suCoService;
     private final TaiKhoanRepository taiKhoanRepo;
+    private final SlaWorkerService slaWorkerService;
 
     /**
      * UC-09: Ghi nhận sự cố (Nhân viên Nhà ga)
@@ -324,6 +326,76 @@ public class SuCoController {
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Lỗi khi điều chỉnh giờ: " + e.getMessage()));
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SLA & Escalation APIs
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Lấy thông tin SLA của sự cố (frontend polling)
+     */
+    @GetMapping("/{maSuCo}/sla")
+    public ResponseEntity<ApiResponse<SlaWorkerService.SlaInfo>> getSlaInfo(
+            @PathVariable String maSuCo) {
+        try {
+            SlaWorkerService.SlaInfo info = slaWorkerService.getSlaInfo(maSuCo);
+            return ResponseEntity.ok(ApiResponse.ok(info));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    /**
+     * BQL override phương án xử lý khi ESCALATED
+     */
+    @PutMapping("/bql-override")
+    public ResponseEntity<ApiResponse<String>> bqlOverride(
+            @RequestBody Map<String, String> request,
+            Authentication authentication,
+            HttpServletRequest httpRequest) {
+
+        try {
+            String maTaiKhoan = authentication.getName();
+            var user = taiKhoanRepo.findById(maTaiKhoan)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy tài khoản"));
+
+            if (!"BAN_QUAN_LY".equals(user.getQuyenTruyCap())) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Chỉ Ban Quản lý mới có quyền override phương án"));
+            }
+
+            String maLichTrinh = request.get("maLichTrinh");
+            String phuongAn = request.get("phuongAn");
+            String maRayMoi = request.get("maRayMoi");
+
+            suCoService.bqlOverridePhuongAn(maLichTrinh, phuongAn, maRayMoi,
+                    user.getMaTaiKhoan(), httpRequest.getRemoteAddr());
+
+            return ResponseEntity.ok(ApiResponse.ok("BQL override thành công"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Lỗi: " + e.getMessage()));
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Bộ Ghi (Switch) APIs
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Lấy danh sách bộ ghi khả dụng giữa 2 ray
+     */
+    @GetMapping("/bo-ghi")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getBoGhiKhaDung(
+            @RequestParam String maRayCu,
+            @RequestParam String maRayMoi) {
+        try {
+            List<Map<String, Object>> result = suCoService.getBoGhiKhaDung(maRayCu, maRayMoi);
+            return ResponseEntity.ok(ApiResponse.ok(result));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
     }
 }

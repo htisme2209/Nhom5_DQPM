@@ -48,6 +48,29 @@ public class SuCo {
     @Column(name = "ngay_tao", nullable = false)
     private LocalDateTime ngayTao;
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // SLA & Escalation Fields
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Hạn chót bắt buộc phải có phương án xử lý.
+     * Tính tự động khi tiếp nhận: min(giờ đến tàu liên quan) - 30 phút
+     */
+    @Column(name = "han_chot_phuong_an")
+    private LocalDateTime hanChotPhuongAn;
+
+    /**
+     * Trạng thái SLA: NORMAL, YELLOW_ALERT, RED_ALERT, ESCALATED
+     */
+    @Column(name = "trang_thai_sla", length = 20)
+    private String trangThaiSLA = "NORMAL";
+
+    /**
+     * Mã người phê duyệt cuối cùng (khi BQL nhảy vào override)
+     */
+    @Column(name = "ma_nguoi_phe_duyet_cuoi", length = 20)
+    private String maNguoiPheDuyetCuoi;
+
     @PrePersist
     protected void onCreate() {
         ngayTao = LocalDateTime.now();
