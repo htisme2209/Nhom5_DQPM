@@ -91,10 +91,15 @@ export default function AppLayout() {
 
 
         <div className="sidebar-footer">
-          <a href="#" className="nav-item">
-            <span className="nav-icon">📋</span>
-            <span>Nhật ký hệ thống</span>
-          </a>
+          {user?.quyenTruyCap === 'QUAN_TRI_VIEN' && (
+            <NavLink 
+              to="/admin/nhat-ky"
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <span className="nav-icon">📋</span>
+              <span>Nhật ký hệ thống</span>
+            </NavLink>
+          )}
           <a className="nav-item" onClick={handleLogout} style={{ cursor: 'pointer' }}>
             <span className="nav-icon">🚪</span>
             <span>Đăng xuất</span>

@@ -4,6 +4,7 @@ import com.danang.railway.dto.ApiResponse;
 import com.danang.railway.entity.*;
 import com.danang.railway.dto.TuyenDuongDTO;
 import com.danang.railway.repository.*;
+import com.danang.railway.service.NhatKyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,6 +22,7 @@ public class AdminController {
     private final TuyenDuongRepository tuyenDuongRepo;
     private final GaTuyenRepository gaTuyenRepo;
     private final PasswordEncoder passwordEncoder;
+    private final NhatKyService nhatKyService;
 
     // === TÀI KHOẢN ===
     @GetMapping("/tai-khoan")
@@ -44,7 +46,18 @@ public class AdminController {
         if (taiKhoan.getMaTaiKhoan() == null || taiKhoan.getMaTaiKhoan().isEmpty()) {
             taiKhoan.setMaTaiKhoan("TK-" + System.currentTimeMillis());
         }
-        return ResponseEntity.ok(ApiResponse.ok("Tạo tài khoản thành công", taiKhoanRepo.save(taiKhoan)));
+        TaiKhoan saved = taiKhoanRepo.save(taiKhoan);
+        
+        // Ghi nhật ký
+        nhatKyService.ghiNhatKy(
+            "THEM",
+            "TAI_KHOAN",
+            saved.getMaTaiKhoan(),
+            null,
+            "Tạo tài khoản: " + saved.getHoTen() + " (" + saved.getQuyenTruyCap() + ")"
+        );
+        
+        return ResponseEntity.ok(ApiResponse.ok("Tạo tài khoản thành công", saved));
     }
 
     @PutMapping("/tai-khoan/{id}")
@@ -53,6 +66,12 @@ public class AdminController {
         if (existing == null) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Không tìm thấy tài khoản"));
         }
+        
+        // Lưu lại giá trị cũ để ghi log
+        String hoTenCu = existing.getHoTen();
+        String quyenCu = existing.getQuyenTruyCap();
+        String trangThaiCu = existing.getTrangThai();
+        
         if (taiKhoan.getHoTen() != null) existing.setHoTen(taiKhoan.getHoTen());
         if (taiKhoan.getEmail() != null) existing.setEmail(taiKhoan.getEmail());
         if (taiKhoan.getQuyenTruyCap() != null) existing.setQuyenTruyCap(taiKhoan.getQuyenTruyCap());
@@ -61,7 +80,24 @@ public class AdminController {
         if (taiKhoan.getMatKhau() != null && !taiKhoan.getMatKhau().isEmpty()) {
             existing.setMatKhau(passwordEncoder.encode(taiKhoan.getMatKhau()));
         }
-        return ResponseEntity.ok(ApiResponse.ok("Cập nhật tài khoản thành công", taiKhoanRepo.save(existing)));
+        
+        TaiKhoan updated = taiKhoanRepo.save(existing);
+        
+        // Ghi nhật ký
+        String thayDoi = "";
+        if (!hoTenCu.equals(updated.getHoTen())) thayDoi += "Tên: " + hoTenCu + " → " + updated.getHoTen() + "; ";
+        if (!quyenCu.equals(updated.getQuyenTruyCap())) thayDoi += "Quyền: " + quyenCu + " → " + updated.getQuyenTruyCap() + "; ";
+        if (!trangThaiCu.equals(updated.getTrangThai())) thayDoi += "Trạng thái: " + trangThaiCu + " → " + updated.getTrangThai() + "; ";
+        
+        nhatKyService.ghiNhatKy(
+            "CAP_NHAT",
+            "TAI_KHOAN",
+            id,
+            hoTenCu + "|" + quyenCu + "|" + trangThaiCu,
+            updated.getHoTen() + "|" + updated.getQuyenTruyCap() + "|" + updated.getTrangThai()
+        );
+        
+        return ResponseEntity.ok(ApiResponse.ok("Cập nhật tài khoản thành công", updated));
     }
 
     // === GA ===

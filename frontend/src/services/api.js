@@ -121,7 +121,9 @@ export const tuyenDuongAPI = {
 };
 
 export const nhatKyAPI = {
-  getAll: () => api.get('/nhat-ky'),
+  getAll: (page = 0, size = 50) => api.get('/nhat-ky', { params: { page, size } }),
+  getByTaiKhoan: (maTaiKhoan) => api.get(`/nhat-ky/tai-khoan/${maTaiKhoan}`),
+  getByDoiTuong: (doiTuong) => api.get(`/nhat-ky/doi-tuong/${doiTuong}`),
 };
 
 export const baoCaoAPI = {

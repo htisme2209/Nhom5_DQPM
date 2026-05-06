@@ -9,33 +9,78 @@ export default function NhatKyPage() {
   const [filterRole, setFilterRole] = useState('');
   const [searchPersonnel, setSearchPersonnel] = useState('');
   const [activeTab, setActiveTab] = useState('nhat-ky');
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [selectedLog, setSelectedLog] = useState(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [currentPage]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const [resLogs, resAccounts] = await Promise.all([
-        nhatKyAPI.getAll(),
+        nhatKyAPI.getAll(currentPage, 50),
         taiKhoanAPI.getAll()
       ]);
-      setNhatKy(resLogs.data.data || resLogs.data || []);
+      
+      // Handle phân trang từ ApiResponse<Page<NhatKy>>
+      const responseData = resLogs.data;
+      if (responseData && responseData.data && responseData.data.content) {
+        setNhatKy(responseData.data.content);
+        setTotalPages(responseData.data.totalPages || 1);
+      } else if (responseData && Array.isArray(responseData.data)) {
+        setNhatKy(responseData.data);
+        setTotalPages(1);
+      } else if (Array.isArray(responseData)) {
+        setNhatKy(responseData);
+        setTotalPages(1);
+      } else {
+        setNhatKy([]);
+        setTotalPages(1);
+      }
+      
       setAccounts(resAccounts.data.data || resAccounts.data || []);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e); 
+      setNhatKy([]);
+    }
     finally { setLoading(false); }
+  };
+
+  const actionIcons = {
+    'DANG_NHAP': { icon: '🔐', label: 'Đăng nhập' },
+    'THEM': { icon: '➕', label: 'Thêm mới' },
+    'CAP_NHAT': { icon: '✏️', label: 'Cập nhật' },
+    'XOA': { icon: '🗑️', label: 'Xóa' },
+    'PHE_DUYET': { icon: '✅', label: 'Phê duyệt' },
+    'GHI_NHAN_SU_CO': { icon: '⚠️', label: 'Ghi nhận sự cố' },
+    'TIEP_NHAN_SU_CO': { icon: '🔧', label: 'Tiếp nhận sự cố' },
   };
 
   const actionColors = {
     'DANG_NHAP': { bg: '#DBEAFE', color: '#1E40AF' },
-    'THEM': { bg: 'var(--green-100)', color: '#166534' },
+    'THEM': { bg: '#DCFCE7', color: '#166534' },
     'CAP_NHAT': { bg: '#FEF3C7', color: '#92400E' },
-    'XOA': { bg: 'var(--red-100)', color: '#991B1B' },
-    'PHE_DUYET': { bg: 'var(--navy-100)', color: 'var(--navy-800)' },
+    'XOA': { bg: '#FEE2E2', color: '#991B1B' },
+    'PHE_DUYET': { bg: '#E0E7FF', color: '#3730A3' },
+    'GHI_NHAN_SU_CO': { bg: '#FEF2F2', color: '#991B1B' },
+    'TIEP_NHAN_SU_CO': { bg: '#DBEAFE', color: '#1E40AF' },
   };
 
-  const filtered = filterAction
-    ? nhatKy.filter(nk => nk.hanhDong === filterAction)
-    : nhatKy;
+  const doiTuongIcons = {
+    'TAI_KHOAN': '👤',
+    'LICH_TRINH': '📅',
+    'CHUYEN_TAU': '🚂',
+    'GA': '🏢',
+    'RAY': '🛤️',
+    'SU_CO': '⚠️',
+    'KE_HOACH': '📋',
+  };
+
+  const filtered = nhatKy.filter(nk => {
+    const matchAction = !filterAction || nk.hanhDong === filterAction;
+    return matchAction;
+  });
 
   const filteredAccounts = accounts.filter(acc => {
     const matchSearch = acc.hoTen?.toLowerCase().includes(searchPersonnel.toLowerCase()) ||
@@ -64,15 +109,31 @@ export default function NhatKyPage() {
     return statusMap[status] || status;
   };
 
+  const formatDateTime = (dt) => {
+    if (!dt) return '---';
+    try {
+      return new Date(dt).toLocaleString('vi-VN', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    } catch {
+      return dt;
+    }
+  };
+
+  const getActionInfo = (action) => {
+    return actionIcons[action] || { icon: '📝', label: action };
+  };
+
   return (
     <>
       <div className="page-header">
         <div className="page-header-actions">
           <div>
-            <h1>Quản lý Thông tin Nhân sự & Nhật ký</h1>
-            <p>Xem thông tin nhân sự và theo dõi lịch sử hành động trong hệ thống</p>
+            <h1>📋 Nhật ký Hệ thống</h1>
+            <p>Theo dõi lịch sử hành động của tất cả người dùng trong hệ thống quản lý</p>
           </div>
-          <button className="btn btn-secondary" onClick={loadData}>🔄 Làm mới</button>
+          <button className="btn btn-secondary" onClick={() => loadData()}>🔄 Làm mới</button>
         </div>
       </div>
 
@@ -92,7 +153,7 @@ export default function NhatKyPage() {
               marginRight: '20px'
             }}
           >
-            📋 Nhật ký Hệ thống
+            📋 Nhật ký Hoạt động
           </button>
           <button
             onClick={() => setActiveTab('nhan-su')}
@@ -106,7 +167,7 @@ export default function NhatKyPage() {
               cursor: 'pointer'
             }}
           >
-            👥 Thông tin Nhân sự
+            👥 Quản lý Nhân sự
           </button>
         </div>
       </div>
@@ -116,57 +177,151 @@ export default function NhatKyPage() {
         <>
           <div className="filter-bar">
             <select className="form-control" style={{ width: 'auto' }} value={filterAction}
-              onChange={(e) => setFilterAction(e.target.value)}>
+              onChange={(e) => { setFilterAction(e.target.value); setCurrentPage(0); }}>
               <option value="">Tất cả hành động</option>
-              <option value="DANG_NHAP">Đăng nhập</option>
-              <option value="THEM">Thêm mới</option>
-              <option value="CAP_NHAT">Cập nhật</option>
-              <option value="XOA">Xóa</option>
-              <option value="PHE_DUYET">Phê duyệt</option>
+              <option value="DANG_NHAP">🔐 Đăng nhập</option>
+              <option value="THEM">➕ Thêm mới</option>
+              <option value="CAP_NHAT">✏️ Cập nhật</option>
+              <option value="XOA">🗑️ Xóa</option>
+              <option value="PHE_DUYET">✅ Phê duyệt</option>
+              <option value="GHI_NHAN_SU_CO">⚠️ Ghi nhận sự cố</option>
+              <option value="TIEP_NHAN_SU_CO">🔧 Tiếp nhận sự cố</option>
             </select>
             <span className="text-sm text-muted" style={{ marginLeft: 'auto' }}>
-              Tổng: {filtered.length} bản ghi
+              Tổng: {filtered.length} bản ghi (Trang {currentPage + 1}/{totalPages})
             </span>
           </div>
 
           <div className="card">
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Thời gian</th>
-                    <th>Người dùng</th>
-                    <th>Hành động</th>
-                    <th>Đối tượng</th>
-                    <th>Chi tiết</th>
-                    <th>IP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr><td colSpan="6" className="text-center text-muted" style={{ padding: '40px' }}>Đang tải...</td></tr>
-                  ) : filtered.map((nk, i) => {
+            <div className="card-body" style={{ padding: 0 }}>
+              {loading ? (
+                <div className="text-center text-muted" style={{ padding: '60px 20px' }}>
+                  <div style={{ fontSize: '32px', marginBottom: '12px' }}>⏳</div>
+                  Đang tải nhật ký...
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="text-center text-muted" style={{ padding: '60px 20px' }}>
+                  <div style={{ fontSize: '32px', marginBottom: '12px' }}>📭</div>
+                  <h3>Không có nhật ký nào</h3>
+                  <p>Không tìm thấy hoạt động phù hợp với bộ lọc của bạn</p>
+                </div>
+              ) : (
+                <div style={{ padding: 0 }}>
+                  {filtered.map((nk, i) => {
                     const ac = actionColors[nk.hanhDong] || { bg: 'var(--gray-100)', color: 'var(--gray-600)' };
+                    const actInfo = getActionInfo(nk.hanhDong);
                     return (
-                      <tr key={nk.maNhatKy || i}>
-                        <td className="text-sm">{nk.ngayTao ? new Date(nk.ngayTao).toLocaleString('vi-VN') : '---'}</td>
-                        <td className="font-semibold">{nk.maTaiKhoan}</td>
-                        <td>
-                          <span style={{
-                            display: 'inline-flex', padding: '4px 10px', borderRadius: '20px',
-                            fontSize: '11px', fontWeight: 600, background: ac.bg, color: ac.color
-                          }}>{nk.hanhDong}</span>
-                        </td>
-                        <td className="text-sm">{nk.doiTuong}</td>
-                        <td className="text-sm" style={{ maxWidth: '300px' }}>{nk.chiTiet}</td>
-                        <td className="text-xs text-muted">{nk.diaChiIP || '---'}</td>
-                      </tr>
+                      <div 
+                        key={nk.maNhatKy || i}
+                        onClick={() => setSelectedLog(selectedLog?.maNhatKy === nk.maNhatKy ? null : nk)}
+                        style={{
+                          padding: '16px 20px',
+                          borderBottom: '1px solid var(--gray-100)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          background: selectedLog?.maNhatKy === nk.maNhatKy ? 'var(--blue-50)' : 'transparent',
+                          borderLeft: selectedLog?.maNhatKy === nk.maNhatKy ? '4px solid var(--primary)' : '4px solid transparent',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--gray-50)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = selectedLog?.maNhatKy === nk.maNhatKy ? 'var(--blue-50)' : 'transparent'}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', flex: 1 }}>
+                            <div style={{ fontSize: '24px', marginTop: '2px' }}>{actInfo.icon}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--navy-900)' }}>
+                                  {nk.maTaiKhoan}
+                                </span>
+                                <span style={{
+                                  display: 'inline-flex', padding: '3px 10px', borderRadius: '20px',
+                                  fontSize: '11px', fontWeight: 600, background: ac.bg, color: ac.color
+                                }}>
+                                  {actInfo.label}
+                                </span>
+                                <span style={{
+                                  display: 'inline-flex', padding: '3px 10px', borderRadius: '20px',
+                                  fontSize: '11px', background: 'var(--gray-100)', color: 'var(--gray-700)'
+                                }}>
+                                  {doiTuongIcons[nk.doiTuong] || '📝'} {nk.doiTuong}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '13px', color: 'var(--gray-600)', marginBottom: '6px' }}>
+                                {nk.noiDungMoi || nk.noiDungCu || 'Không có thêm chi tiết'}
+                              </div>
+                              <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--gray-500)' }}>
+                                <span>🕐 {formatDateTime(nk.thoiGian)}</span>
+                                <span>🔗 {nk.maDoiTuong || '—'}</span>
+                                <span>📍 {nk.diaChiIp || 'Unknown'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Expanded view */}
+                        {selectedLog?.maNhatKy === nk.maNhatKy && (nk.noiDungCu || nk.noiDungMoi) && (
+                          <div style={{
+                            marginTop: '12px',
+                            padding: '12px',
+                            background: 'var(--gray-50)',
+                            borderRadius: '6px',
+                            borderLeft: '3px solid var(--primary)',
+                            fontSize: '12px'
+                          }}>
+                            {nk.noiDungCu && (
+                              <div style={{ marginBottom: '8px' }}>
+                                <strong>📌 Giá trị cũ:</strong>
+                                <pre style={{ margin: '4px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#fff', padding: '8px', borderRadius: '4px', fontSize: '11px' }}>
+                                  {nk.noiDungCu}
+                                </pre>
+                              </div>
+                            )}
+                            {nk.noiDungMoi && (
+                              <div>
+                                <strong>✨ Giá trị mới:</strong>
+                                <pre style={{ margin: '4px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#fff', padding: '8px', borderRadius: '4px', fontSize: '11px' }}>
+                                  {nk.noiDungMoi}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Phân trang */}
+          {totalPages > 1 && (
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                disabled={currentPage === 0}
+              >
+                ← Trước
+              </button>
+              {Array.from({ length: totalPages }).map((_, i) => (
+                <button
+                  key={i}
+                  className={`btn ${currentPage === i ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setCurrentPage(i)}
+                >
+                  {i + 1}
+                </button>
+              ))}
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                disabled={currentPage === totalPages - 1}
+              >
+                Sau →
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -185,10 +340,10 @@ export default function NhatKyPage() {
             <select className="form-control" style={{ width: 'auto', marginLeft: '10px' }} value={filterRole}
               onChange={(e) => setFilterRole(e.target.value)}>
               <option value="">Tất cả vai trò</option>
-              <option value="QUAN_TRI_VIEN">Quản trị viên</option>
-              <option value="BAN_QUAN_LY">Ban quản lý</option>
-              <option value="NHAN_VIEN_DIEU_HANH">Nhân viên điều hành</option>
-              <option value="NHAN_VIEN_NHA_GA">Nhân viên nhà ga</option>
+              <option value="QUAN_TRI_VIEN">👤 Quản trị viên</option>
+              <option value="BAN_QUAN_LY">📊 Ban quản lý</option>
+              <option value="NHAN_VIEN_DIEU_HANH">🚂 Nhân viên điều hành</option>
+              <option value="NHAN_VIEN_NHA_GA">🏢 Nhân viên nhà ga</option>
             </select>
             <span className="text-sm text-muted" style={{ marginLeft: 'auto' }}>
               Tổng: {filteredAccounts.length} nhân sự
@@ -203,39 +358,38 @@ export default function NhatKyPage() {
                     <th>Mã tài khoản</th>
                     <th>Họ tên</th>
                     <th>Email</th>
-                    <th>Số điện thoại</th>
+                    <th>Điện thoại</th>
                     <th>Vai trò</th>
-                    <th>Giới tính</th>
                     <th>Trạng thái</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan="7" className="text-center text-muted" style={{ padding: '40px' }}>Đang tải...</td></tr>
+                    <tr><td colSpan="6" className="text-center text-muted" style={{ padding: '40px' }}>Đang tải...</td></tr>
                   ) : filteredAccounts.length === 0 ? (
-                    <tr><td colSpan="7" className="text-center text-muted" style={{ padding: '40px' }}>Không tìm thấy nhân sự</td></tr>
-                  ) : (
-                    filteredAccounts.map((acc, i) => (
-                      <tr key={acc.maTaiKhoan || i}>
-                        <td className="font-bold text-navy">{acc.maTaiKhoan}</td>
-                        <td className="font-semibold">{acc.hoTen}</td>
-                        <td className="text-sm">{acc.email}</td>
-                        <td className="text-sm">{acc.sdt || '---'}</td>
-                        <td>
-                          <span style={{
-                            display: 'inline-flex', padding: '4px 10px', borderRadius: '20px',
-                            fontSize: '11px', fontWeight: 600, background: 'var(--navy-100)', color: 'var(--navy-800)'
-                          }}>{getRoleLabel(acc.quyenTruyCap)}</span>
-                        </td>
-                        <td className="text-sm">{acc.gioiTinh === 'NAM' ? 'Nam' : acc.gioiTinh === 'NU' ? 'Nữ' : '---'}</td>
-                        <td>
-                          <span className={`badge ${acc.trangThai === 'HOAT_DONG' ? 'badge-success' : acc.trangThai === 'CHO_XAC_NHAN' ? 'badge-warning' : 'badge-danger'}`}>
-                            {getStatusLabel(acc.trangThai)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                    <tr><td colSpan="6" className="text-center text-muted" style={{ padding: '40px' }}>Không tìm thấy nhân sự nào</td></tr>
+                  ) : filteredAccounts.map((acc, i) => (
+                    <tr key={acc.maTaiKhoan || i}>
+                      <td className="font-semibold text-navy">{acc.maTaiKhoan}</td>
+                      <td>{acc.hoTen}</td>
+                      <td className="text-sm">{acc.email}</td>
+                      <td>{acc.soDienThoai || '—'}</td>
+                      <td>
+                        <span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, background: 'var(--blue-100)', color: 'var(--blue-700)' }}>
+                          {getRoleLabel(acc.quyenTruyCap)}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{
+                          display: 'inline-flex', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600,
+                          background: acc.trangThai === 'HOAT_DONG' ? 'var(--green-100)' : 'var(--red-100)',
+                          color: acc.trangThai === 'HOAT_DONG' ? '#166534' : '#991B1B'
+                        }}>
+                          {acc.trangThai === 'HOAT_DONG' ? '✅' : '⛔'} {getStatusLabel(acc.trangThai)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

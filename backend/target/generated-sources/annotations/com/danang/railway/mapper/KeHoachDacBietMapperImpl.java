@@ -1,0 +1,53 @@
+package com.danang.railway.mapper;
+
+import com.danang.railway.dto.request.KeHoachDacBietRequest;
+import com.danang.railway.dto.response.KeHoachDacBietResponse;
+import com.danang.railway.entity.KeHoachDacBiet;
+import javax.annotation.processing.Generated;
+import org.springframework.stereotype.Component;
+
+@Generated(
+    value = "org.mapstruct.ap.MappingProcessor",
+    date = "2026-05-06T15:33:01+0700",
+    comments = "version: 1.5.5.Final, compiler: javac, environment: Java 22.0.2 (Oracle Corporation)"
+)
+@Component
+public class KeHoachDacBietMapperImpl implements KeHoachDacBietMapper {
+
+    @Override
+    public KeHoachDacBiet toKeHoachDacBiet(KeHoachDacBietRequest request) {
+        if ( request == null ) {
+            return null;
+        }
+
+        KeHoachDacBiet.KeHoachDacBietBuilder keHoachDacBiet = KeHoachDacBiet.builder();
+
+        keHoachDacBiet.maLichTrinh( request.getMaLichTrinh() );
+        keHoachDacBiet.tieuDe( request.getTieuDe() );
+        keHoachDacBiet.noiDung( request.getNoiDung() );
+        keHoachDacBiet.mucDoUuTien( request.getMucDoUuTien() );
+
+        return keHoachDacBiet.build();
+    }
+
+    @Override
+    public KeHoachDacBietResponse toKeHoachDacBietResponse(KeHoachDacBiet keHoachDacBiet) {
+        if ( keHoachDacBiet == null ) {
+            return null;
+        }
+
+        KeHoachDacBietResponse keHoachDacBietResponse = new KeHoachDacBietResponse();
+
+        keHoachDacBietResponse.setMaKeHoach( keHoachDacBiet.getMaKeHoach() );
+        keHoachDacBietResponse.setMaLichTrinh( keHoachDacBiet.getMaLichTrinh() );
+        keHoachDacBietResponse.setTieuDe( keHoachDacBiet.getTieuDe() );
+        keHoachDacBietResponse.setNoiDung( keHoachDacBiet.getNoiDung() );
+        keHoachDacBietResponse.setMucDoUuTien( keHoachDacBiet.getMucDoUuTien() );
+        keHoachDacBietResponse.setTrangThai( keHoachDacBiet.getTrangThai() );
+        keHoachDacBietResponse.setYKienDuyet( keHoachDacBiet.getYKienDuyet() );
+        keHoachDacBietResponse.setNgayGui( keHoachDacBiet.getNgayGui() );
+        keHoachDacBietResponse.setNgayDuyet( keHoachDacBiet.getNgayDuyet() );
+
+        return keHoachDacBietResponse;
+    }
+}

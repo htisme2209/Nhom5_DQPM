@@ -210,20 +210,4 @@ public class LichTrinhController {
         return ResponseEntity.ok(ApiResponse.ok("Cập nhật đường ray thành công", duongRayRepo.save(duongRay)));
     }
 
-    // === NHẬT KÝ ===
-    @GetMapping("/nhat-ky")
-    public ResponseEntity<ApiResponse<List<NhatKy>>> getAllNhatKy() {
-        try {
-            // Lấy trang đầu tiên, tối đa 500 bản ghi để tối ưu hiệu suất
-            Pageable top500 = PageRequest.of(0, 500);
-            
-            // Dùng .getContent() để chuyển từ Page<NhatKy> sang List<NhatKy> cho React
-            List<NhatKy> dsNhatKy = nhatKyRepo.findAllByOrderByThoiGianDesc(top500).getContent();
-            
-            return ResponseEntity.ok(ApiResponse.ok(dsNhatKy));
-        } catch (Exception e) {
-            e.printStackTrace(); 
-            return ResponseEntity.internalServerError().body(ApiResponse.error("Lỗi khi lấy dữ liệu nhật ký: " + e.getMessage()));
-        }
-    }
 }

@@ -16,7 +16,7 @@ public class NhatKy {
     @Column(name = "ma_nhat_ky", length = 20)
     private String maNhatKy;
 
-    @Column(name = "ma_tai_khoan", length = 20, nullable = false)
+    @Column(name = "ma_tai_khoan", length = 20)
     private String maTaiKhoan;
 
     @Column(name = "hanh_dong", length = 200, nullable = false)
