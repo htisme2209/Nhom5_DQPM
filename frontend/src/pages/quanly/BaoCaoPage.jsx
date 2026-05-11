@@ -62,7 +62,6 @@ export default function BaoCaoPage() {
     'DA_XAC_NHAN': 'Đã xác nhận',
     'DUNG_TAI_GA': 'Đang ở ga',
     'DA_ROI_GA': 'Đã rời ga',
-    'BI_HUY': 'Bị hủy',
   };
 
   return (

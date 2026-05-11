@@ -21,6 +21,7 @@ const navConfig = {
       { path: '/dieu-hanh/xu-ly-su-co', icon: '🔧', label: 'Xử lý Sự cố' },
       { path: '/dieu-hanh/ke-hoach', icon: '📝', label: 'Kế hoạch' },
       { path: '/dieu-hanh/mo-phong', icon: '📈', label: 'Mô phỏng' },
+      { path: '/dieu-hanh/chi-dao', icon: '📨', label: 'Chỉ đạo' },
     ],
   },
   NHAN_VIEN_NHA_GA: {

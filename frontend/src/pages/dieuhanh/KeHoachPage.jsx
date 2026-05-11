@@ -224,11 +224,25 @@ export default function KeHoachPage() {
                   📅 {showDetail.ngayGui ? new Date(showDetail.ngayGui).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : '---'}
                 </p>
               </div>
+              {/* CẬP NHẬT CỘT 3: Hiển thị Người duyệt & Thời gian duyệt nếu đã xử lý */}
               <div>
-                <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--gray-500)', marginBottom: '4px', textTransform: 'uppercase' }}>Thời gian duyệt</p>
-                <p style={{ fontSize: '14px', fontWeight: 600, color: showDetail.ngayDuyet ? 'var(--navy-800)' : 'var(--gray-400)' }}>
-                  🕒 {showDetail.ngayDuyet ? new Date(showDetail.ngayDuyet).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Chưa phê duyệt'}
+                <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--gray-500)', marginBottom: '4px', textTransform: 'uppercase' }}>
+                  {showDetail.trangThai === 'CHO_PHE_DUYET' ? 'Trạng thái xử lý' : 'Người phê duyệt'}
                 </p>
+                {showDetail.trangThai === 'CHO_PHE_DUYET' ? (
+                  <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--gray-400)' }}>
+                    🕒 Đang chờ...
+                  </p>
+                ) : (
+                  <div>
+                    <p style={{ fontSize: '14px', fontWeight: 700, color: showDetail.trangThai === 'DA_PHE_DUYET' ? '#166534' : '#991b1b', marginBottom: '2px' }}>
+                      ✍️ {showDetail.maNguoiDuyet || 'Hệ thống'}
+                    </p>
+                    <p style={{ fontSize: '11px', color: 'var(--gray-500)' }}>
+                      🕒 {showDetail.ngayDuyet ? new Date(showDetail.ngayDuyet).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : '---'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -244,6 +258,7 @@ export default function KeHoachPage() {
               </div>
             </div>
 
+            {/* FORM XỬ LÝ (CHỈ BQL VÀ KHI ĐANG CHỜ DUYỆT) */}
             {isQuanLy && showDetail.trangThai === 'CHO_PHE_DUYET' && (
               <div style={{ 
                 background: 'var(--navy-50)', border: '1px solid var(--navy-200)', 
@@ -285,20 +300,28 @@ export default function KeHoachPage() {
               </div>
             )}
             
-            {showDetail.trangThai !== 'CHO_PHE_DUYET' && showDetail.yKienDuyet && (
+            {/* BOX XEM Ý KIẾN (KHI ĐÃ XỬ LÝ) */}
+            {showDetail.trangThai !== 'CHO_PHE_DUYET' && (
               <div style={{ 
                 background: showDetail.trangThai === 'DA_PHE_DUYET' ? '#f0fdf4' : '#fef2f2', 
                 border: `1px solid ${showDetail.trangThai === 'DA_PHE_DUYET' ? '#bbf7d0' : '#fecaca'}`, 
                 borderRadius: '8px', padding: '16px', marginTop: '8px' 
               }}>
-                <h4 style={{ fontSize: '13px', fontWeight: 700, color: showDetail.trangThai === 'DA_PHE_DUYET' ? '#166534' : '#991b1b', marginBottom: '8px', textTransform: 'uppercase' }}>
-                  Ý kiến từ Ban Quản lý ({showDetail.maNguoiDuyet || 'Hệ thống'})
+                <h4 style={{ 
+                  fontSize: '13px', fontWeight: 700, 
+                  color: showDetail.trangThai === 'DA_PHE_DUYET' ? '#166534' : '#991b1b', 
+                  marginBottom: '8px', textTransform: 'uppercase' 
+                }}>
+                  Ý kiến chỉ đạo từ Ban Quản lý
                 </h4>
                 <p style={{ fontSize: '14px', color: 'var(--gray-800)', margin: 0, fontStyle: 'italic' }}>
-                  "{showDetail.yKienDuyet}"
+                  {(showDetail.ykienDuyet || showDetail.yKienDuyet) 
+                    ? `"${showDetail.ykienDuyet || showDetail.yKienDuyet}"` 
+                    : "Không có ý kiến bổ sung."}
                 </p>
               </div>
             )}
+            
           </div>
         )}
       </Modal>

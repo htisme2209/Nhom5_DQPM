@@ -23,10 +23,9 @@ export default function ChiDaoPage() {
     setLoading(true);
     try {
       const [cdRes, nvRes] = await Promise.all([chiDaoAPI.getAll(), taiKhoanAPI.getAll()]);
-      // Sắp xếp chỉ đạo mới nhất lên đầu
-      const sortedCd = (cdRes.data.data || cdRes.data || []).sort((a, b) => new Date(b.ngayTao || 0) - new Date(a.ngayTao || 0));
+      const sortedCd = (cdRes.data?.data || cdRes.data || []).sort((a, b) => new Date(b.ngayTao || 0) - new Date(a.ngayTao || 0));
       setChiDao(sortedCd);
-      setNhanVien(nvRes.data.data || nvRes.data || []);
+      setNhanVien(nvRes.data?.data || nvRes.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -53,7 +52,8 @@ export default function ChiDaoPage() {
     try {
       await chiDaoAPI.create({ ...form, maNguoiGui: user?.maTaiKhoan });
       showToast('Gửi chỉ đạo thành công!');
-      setShowForm(false); loadData();
+      setShowForm(false); 
+      loadData();
     } catch (e) { showToast(e.response?.data?.message || 'Lỗi khi gửi', 'error'); }
     finally { setFormLoading(false); }
   };
@@ -74,7 +74,6 @@ export default function ChiDaoPage() {
     <>
       {toast && <div className="toast-container"><div className={`toast ${toast.type}`}>{toast.type === 'success' ? '✅' : '❌'} {toast.msg}</div></div>}
 
-      {/* Header gọn gàng, hiện đại */}
       <div className="page-header" style={{ borderBottom: '1px solid var(--gray-200)', paddingBottom: '24px', marginBottom: '24px' }}>
         <div className="page-header-actions">
           <div>
@@ -93,7 +92,6 @@ export default function ChiDaoPage() {
         </div>
       </div>
 
-      {/* Stats Grid - Thêm hiệu ứng màu sắc */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: '24px' }}>
         <div className="stat-card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
           <div className="stat-info">
@@ -105,7 +103,8 @@ export default function ChiDaoPage() {
         <div className="stat-card" style={{ background: '#fffbeb', border: '1px solid #fef08a' }}>
           <div className="stat-info">
             <div className="stat-label" style={{ color: '#b45309' }}>Chưa xử lý / Mới</div>
-            <div className="stat-value" style={{ color: '#78350f' }}>{myDirectives.filter(c => c.trangThai === 'CHUA_DOC').length}</div>
+            {/* Đã sửa CHUA_DOC thành DA_GUI */}
+            <div className="stat-value" style={{ color: '#78350f' }}>{myDirectives.filter(c => c.trangThai === 'DA_GUI').length}</div>
           </div>
           <div className="stat-icon" style={{ background: '#fde68a' }}>🔥</div>
         </div>
@@ -118,7 +117,6 @@ export default function ChiDaoPage() {
         </div>
       </div>
 
-      {/* Main Inbox Container */}
       <div className="card" style={{ boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
         <div className="card-header" style={{ borderBottom: '1px solid var(--gray-100)', padding: '20px' }}>
           <h3 style={{ fontSize: '16px', color: 'var(--navy-800)' }}>Lịch sử giao tiếp</h3>
@@ -133,32 +131,29 @@ export default function ChiDaoPage() {
             </div>
           ) : myDirectives.map(cd => (
             
-            // Từng Item Tin nhắn (Inbox Style)
             <div key={cd.maChiDao} style={{
               padding: '24px', borderBottom: '1px solid var(--gray-100)',
-              background: cd.trangThai === 'CHUA_DOC' ? '#f8fafc' : '#ffffff', // Highlight tin chưa đọc
+              background: cd.trangThai === 'DA_GUI' ? '#f8fafc' : '#ffffff', 
               display: 'flex', gap: '20px', alignItems: 'flex-start',
               transition: 'all 0.2s ease',
-              borderLeft: cd.trangThai === 'CHUA_DOC' ? '4px solid var(--primary)' : '4px solid transparent'
+              borderLeft: cd.trangThai === 'DA_GUI' ? '4px solid var(--primary)' : '4px solid transparent'
             }}>
               
-              {/* Avatar Icon */}
               <div style={{
                 width: '48px', height: '48px', borderRadius: '12px', flexShrink: 0,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px',
-                background: cd.trangThai === 'CHUA_DOC' ? 'var(--blue-100)' : 'var(--gray-100)'
+                background: cd.trangThai === 'DA_GUI' ? 'var(--blue-100)' : 'var(--gray-100)'
               }}>
                 {cd.mucDoUuTien === 'KHAN_CAP' ? '🚨' : cd.mucDoUuTien === 'CAO' ? '⚡' : '✉️'}
               </div>
 
-              {/* Message Content */}
               <div style={{ flex: 1 }}>
                 <div className="flex-between" style={{ marginBottom: '8px' }}>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <h4 style={{ fontSize: '16px', fontWeight: cd.trangThai === 'CHUA_DOC' ? 700 : 600, color: 'var(--navy-900)', margin: 0 }}>
+                    <h4 style={{ fontSize: '16px', fontWeight: cd.trangThai === 'DA_GUI' ? 700 : 600, color: 'var(--navy-900)', margin: 0 }}>
                       {cd.tieuDe}
                     </h4>
-                    {cd.trangThai === 'CHUA_DOC' && <span className="badge badge-navy" style={{ fontSize: '11px', padding: '4px 8px' }}>MỚI</span>}
+                    {cd.trangThai === 'DA_GUI' && <span className="badge badge-navy" style={{ fontSize: '11px', padding: '4px 8px' }}>MỚI</span>}
                     <span className={`badge ${cd.mucDoUuTien === 'KHAN_CAP' ? 'badge-danger' : cd.mucDoUuTien === 'CAO' ? 'badge-warning' : 'badge-gray'}`} style={{ fontSize: '11px' }}>
                       {cd.mucDoUuTien === 'KHAN_CAP' ? 'KHẨN CẤP' : cd.mucDoUuTien}
                     </span>
@@ -169,7 +164,7 @@ export default function ChiDaoPage() {
                 </div>
 
                 <div style={{ 
-                  background: cd.trangThai === 'CHUA_DOC' ? '#ffffff' : '#f8fafc',
+                  background: cd.trangThai === 'DA_GUI' ? '#ffffff' : '#f8fafc',
                   border: '1px solid var(--gray-200)', borderRadius: '8px', 
                   padding: '16px', marginTop: '12px', marginBottom: '16px'
                 }}>
@@ -188,8 +183,8 @@ export default function ChiDaoPage() {
                     </span>
                   </div>
 
-                  {/* Nút xác nhận dành cho Nhân viên */}
-                  {!isManager && cd.trangThai === 'CHUA_DOC' && (
+                  {/* CHỖ NÀY ĐÂY: Hiển thị nút cho NV Điều Hành / NV Nhà Ga nếu thư mới gửi tới (DA_GUI) */}
+                  {!isManager && cd.trangThai === 'DA_GUI' && (
                     <button 
                       className="btn btn-success" 
                       style={{ padding: '6px 16px', fontSize: '13px', fontWeight: 600, boxShadow: '0 2px 4px rgba(34,197,94,0.2)' }} 
@@ -210,7 +205,6 @@ export default function ChiDaoPage() {
         </div>
       </div>
 
-      {/* Create Modal - Thiết kế lại chuyên nghiệp hơn */}
       <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Soạn Chỉ đạo Mới" size="md">
         <div style={{ background: 'var(--blue-50)', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', border: '1px solid var(--blue-100)' }}>
           <p style={{ fontSize: '13px', color: 'var(--blue-800)', margin: 0 }}>
@@ -223,9 +217,13 @@ export default function ChiDaoPage() {
             <label className="form-label" style={{ fontWeight: 600, color: 'var(--navy-800)' }}>NGƯỜI NHẬN <span style={{color: 'red'}}>*</span></label>
             <select className="form-control" style={{ border: '1px solid var(--gray-300)' }} value={form.maNguoiNhan} onChange={(e) => setForm({...form, maNguoiNhan: e.target.value})}>
               <option value="">-- Chọn nhân viên tiếp nhận --</option>
-              {nhanVien.filter(nv => nv.maTaiKhoan !== user?.maTaiKhoan).map(nv => (
-                <option key={nv.maTaiKhoan} value={nv.maTaiKhoan}>{nv.hoTen} - {nv.quyenTruyCap}</option>
-              ))}
+              {nhanVien
+                .filter(nv => nv.quyenTruyCap === 'NHAN_VIEN_NHA_GA' || nv.quyenTruyCap === 'NHAN_VIEN_DIEU_HANH')
+                .map(nv => (
+                  <option key={nv.maTaiKhoan} value={nv.maTaiKhoan}>
+                    {nv.hoTen} - {nv.quyenTruyCap === 'NHAN_VIEN_NHA_GA' ? 'NV Nhà ga' : 'NV Điều hành'}
+                  </option>
+                ))}
             </select>
           </div>
           <div className="form-group" style={{ flex: 1 }}>
