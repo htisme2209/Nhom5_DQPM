@@ -62,6 +62,10 @@ export default function BaoCaoPage() {
     'DA_XAC_NHAN': 'Đã xác nhận',
     'DUNG_TAI_GA': 'Đang ở ga',
     'DA_ROI_GA': 'Đã rời ga',
+    'DANG_DI_CHUYEN': 'Đang di chuyển',
+    'DA_HOAN_THANH': 'Đã hoàn thành',
+    'TRE': 'Trễ chuyến',
+    'HUY': 'Bị hủy',
     'BI_HUY': 'Bị hủy',
   };
 
@@ -124,6 +128,10 @@ export default function BaoCaoPage() {
                   'DA_XAC_NHAN': '#3B82F6',
                   'DUNG_TAI_GA': '#22C55E',
                   'DA_ROI_GA': '#9CA3AF',
+                  'DANG_DI_CHUYEN': '#06B6D4',
+                  'DA_HOAN_THANH': '#10B981',
+                  'TRE': '#F97316',
+                  'HUY': '#EF4444',
                   'BI_HUY': '#EF4444'
                 };
                 return (
