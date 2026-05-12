@@ -55,9 +55,18 @@ export default function LichTrinhPage() {
         chuyenTauAPI.getAll(),
         duongRayAPI.getAll(),
       ]);
-      setLichTrinh(ltRes.data.data || ltRes.data || []);
-      setChuyenTau(ctRes.data.data || ctRes.data || []);
-      setDuongRay(drRes.data.data || drRes.data || []);
+
+      let fetchedLichTrinh = ltRes.data?.data || ltRes.data || [];
+      if (filter.trangThai) {
+        fetchedLichTrinh = fetchedLichTrinh.filter(lt => lt.trangThai === filter.trangThai);
+      }
+      if (filter.maRay) {
+        fetchedLichTrinh = fetchedLichTrinh.filter(lt => lt.maRay === filter.maRay);
+      }
+
+      setLichTrinh(fetchedLichTrinh);
+      setChuyenTau(ctRes.data?.data || ctRes.data || []);
+      setDuongRay(drRes.data?.data || drRes.data || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -140,8 +149,8 @@ export default function LichTrinhPage() {
       const errorData = e.response?.data;
       if (errorData?.code === 'ERR_LEAD_TIME_24H') {
         showToast(
-          '⚠️ Quy tắc 24h: ' + errorData.message + 
-          ' (Hãy dùng luồng xử lý sự cố nếu cần tạo lịch trình khẩn cấp)', 
+          '⚠️ Quy tắc 24h: ' + errorData.message +
+          ' (Hãy dùng luồng xử lý sự cố nếu cần tạo lịch trình khẩn cấp)',
           'error'
         );
       } else {
@@ -223,6 +232,7 @@ export default function LichTrinhPage() {
         onFilterChange={setFilter}
         onRefresh={loadData}
         totalCount={lichTrinh.length}
+        duongRay={duongRay}
       />
 
       {/* Schedule Table */}

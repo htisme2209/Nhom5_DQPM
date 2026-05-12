@@ -5,7 +5,7 @@ spring:
   datasource:
     url: jdbc:sqlserver://localhost:1433;databaseName=railway_danang;encrypt=true;trustServerCertificate=true;sendStringParametersAsUnicode=true
     username: sa
-    password: 12345
+    password: 123
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   jpa:
     hibernate:

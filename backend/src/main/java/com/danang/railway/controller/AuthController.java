@@ -24,10 +24,10 @@ public class AuthController {
         TaiKhoan user = taiKhoanRepository.findByEmail(request.getEmail())
                 .orElse(null);
         System.out.println("Chuỗi băm chuẩn cho 123456: " + passwordEncoder.encode("123456"));
-//       if (user == null || !passwordEncoder.matches(request.getMatKhau(), user.getMatKhau())) {
-//           return ResponseEntity.badRequest()
-//                   .body(ApiResponse.error("Tên đăng nhập hoặc mật khẩu không đúng"));
-//       }
+       if (user == null || !passwordEncoder.matches(request.getMatKhau(), user.getMatKhau())) {
+           return ResponseEntity.badRequest()
+                   .body(ApiResponse.error("Tên đăng nhập hoặc mật khẩu không đúng"));
+       }
 
         if ("KHOA".equals(user.getTrangThai())) {
             return ResponseEntity.badRequest()
