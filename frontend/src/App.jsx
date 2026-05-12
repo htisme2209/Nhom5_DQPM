@@ -60,6 +60,7 @@ function AppRoutes() {
         <Route path="xu-ly-su-co" element={<XuLySuCoPage />} />
         <Route path="ke-hoach" element={<KeHoachPage />} />
         <Route path="mo-phong" element={<MoPhongLichTrinhPage />} />
+        <Route path="chi-dao" element={<ChiDaoPage />} />
       </Route>
 
       {/* ===== Admin routes ===== */}
