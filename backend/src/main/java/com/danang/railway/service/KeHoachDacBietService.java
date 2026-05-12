@@ -34,7 +34,7 @@ public class KeHoachDacBietService {
         keHoachDacBiet.setMaKeHoach("KH_" + UUID.randomUUID().toString().substring(0, 8));
         keHoachDacBiet.setMaNguoiGui(idNguoiGui);
         keHoachDacBiet.setNgayGui(LocalDate.now().atStartOfDay());
-        keHoachDacBiet.setTrangThai("Chờ duyệt");
+        keHoachDacBiet.setTrangThai("CHO_PHE_DUYET");
         keHoachDacBiet.setYKienDuyet("");
 
         keHoachDacBietRepository.save(keHoachDacBiet);
