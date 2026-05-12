@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { keHoachAPI } from '../../services/api';
+import { keHoachAPI, lichTrinhAPI } from '../../services/api';
 import Modal from '../../components/Modal';
 import { useAuth } from '../../context/AuthContext';
 
@@ -14,17 +14,22 @@ export default function KeHoachPage() {
   const [yKienDuyet, setYkienDuyet] = useState('');
   
   const [form, setForm] = useState({
-    tieuDe: '', noiDung: '', mucDoUuTien: 'TRUNG_BINH'
+    tieuDe: '', noiDung: '', mucDoUuTien: 'TRUNG_BINH', maLichTrinh: ''
   });
+  const [lichTrinhs, setLichTrinhs] = useState([]);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await keHoachAPI.getAll();
-      const sortedData = (res.data.data || res.data || []).sort((a, b) => new Date(b.ngayGui || 0) - new Date(a.ngayGui || 0));
+      const [resKh, resLt] = await Promise.all([
+        keHoachAPI.getAll(),
+        lichTrinhAPI.getAll()
+      ]);
+      const sortedData = (resKh.data?.data || resKh.data || []).sort((a, b) => new Date(b.ngayGui || 0) - new Date(a.ngayGui || 0));
       setKeHoach(sortedData);
+      setLichTrinhs(resLt.data?.data || resLt.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -35,7 +40,7 @@ export default function KeHoachPage() {
 
   const openCreate = () => {
     setForm({
-      tieuDe: '', noiDung: '', mucDoUuTien: 'TRUNG_BINH'
+      tieuDe: '', noiDung: '', mucDoUuTien: 'TRUNG_BINH', maLichTrinh: ''
     });
     setShowForm(true);
   };
@@ -163,6 +168,17 @@ export default function KeHoachPage() {
             value={form.tieuDe} onChange={(e) => setForm({...form, tieuDe: e.target.value})} />
         </div>
         <div className="form-group">
+          <label className="form-label">MÃ LỊCH TRÌNH</label>
+          <select className="form-control" value={form.maLichTrinh} onChange={(e) => setForm({...form, maLichTrinh: e.target.value})}>
+            <option value="">-- Chọn lịch trình (tùy chọn) --</option>
+            {lichTrinhs.map(lt => (
+              <option key={lt.maLichTrinh} value={lt.maLichTrinh}>
+                [{lt.maLichTrinh}] Tàu {lt.maChuyenTau} - Đi: {lt.gioDiDuKien ? new Date(lt.gioDiDuKien).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : 'N/A'}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-group">
           <label className="form-label">MỨC ĐỘ ƯU TIÊN</label>
           <select className="form-control" value={form.mucDoUuTien}
             onChange={(e) => setForm({...form, mucDoUuTien: e.target.value})}>
@@ -197,6 +213,11 @@ export default function KeHoachPage() {
                   </h2>
                   <p style={{ color: 'var(--gray-500)', fontSize: '13px' }}>
                     Mã hồ sơ: <strong style={{ color: 'var(--navy-700)' }}>{showDetail.maKeHoach}</strong>
+                    {showDetail.maLichTrinh && (
+                      <span style={{ marginLeft: '16px' }}>
+                        Mã lịch trình: <strong style={{ color: 'var(--navy-700)' }}>{showDetail.maLichTrinh}</strong>
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
