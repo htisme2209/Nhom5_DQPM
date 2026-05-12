@@ -25,10 +25,10 @@ public class KeHoachDacBiet {
     @Column(name = "ma_lich_trinh", length = 20)
     private String maLichTrinh;
 
-    @Column(name = "tieu_de", length = 300, nullable = false)
+    @Column(name = "tieu_de", columnDefinition = "NVARCHAR(300)", nullable = false)
     private String tieuDe;
 
-    @Column(name = "noi_dung", length = 2000, nullable = false)
+    @Column(name = "noi_dung", columnDefinition = "NVARCHAR(2000)", nullable = false)
     private String noiDung;
 
     @Column(name = "muc_do_uu_tien", length = 20, nullable = false)
@@ -37,7 +37,7 @@ public class KeHoachDacBiet {
     @Column(name = "trang_thai", length = 20, nullable = false)
     private String trangThai = "CHO_PHE_DUYET";
 
-    @Column(name = "y_kien_duyet", length = 1000)
+    @Column(name = "y_kien_duyet", columnDefinition = "NVARCHAR(1000)")
     private String yKienDuyet;
 
     @Column(name = "ngay_gui", nullable = false)

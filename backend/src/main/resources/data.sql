@@ -10,6 +10,21 @@ GO
 USE railway_danang;
 GO
 
+ALTER TABLE KE_HOACH_DAC_BIET
+ALTER COLUMN tieu_de NVARCHAR(300) NOT NULL;
+
+ALTER TABLE KE_HOACH_DAC_BIET
+ALTER COLUMN noi_dung NVARCHAR(2000) NOT NULL;
+
+ALTER TABLE KE_HOACH_DAC_BIET
+ALTER COLUMN muc_do_uu_tien NVARCHAR(20) NOT NULL;
+
+ALTER TABLE KE_HOACH_DAC_BIET
+ALTER COLUMN trang_thai NVARCHAR(20) NOT NULL;
+
+ALTER TABLE KE_HOACH_DAC_BIET
+ALTER COLUMN y_kien_duyet NVARCHAR(1000);
+
 -- ============================================
 -- 1. TÀI KHOẢN (mật khẩu: 123456 - BCrypt)
 -- Mỗi vai trò 1 tài khoản để test phân quyền

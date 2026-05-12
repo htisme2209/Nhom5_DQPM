@@ -3,9 +3,9 @@ server:
 
 spring:
   datasource:
-    url: jdbc:sqlserver://localhost:1433;databaseName=railway_danang;encrypt=true;trustServerCertificate=true
+    url: jdbc:sqlserver://localhost:1433;databaseName=railway_danang;encrypt=true;trustServerCertificate=true;sendStringParametersAsUnicode=true
     username: sa
-    password: 123
+    password: 12345
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
   jpa:
     hibernate:
